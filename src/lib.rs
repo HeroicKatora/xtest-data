@@ -2,20 +2,29 @@ mod git;
 
 use std::{fs, path::Path, path::PathBuf};
 use serde_json::Value;
+use slotmap::{DefaultKey, SlotMap};
 use url::Url;
 
 #[derive(Debug)]
 pub struct File {
-    local_path: &'static str,
+    key: DefaultKey,
 }
 
 #[derive(Debug)]
 pub struct Tree {
-    local_path: &'static str,
+    key: DefaultKey,
+}
+
+#[derive(Debug)]
+enum FsItem {
+    FilePath(PathBuf),
+    Tree(PathBuf),
 }
 
 /// The product of `Vcs`, ensuring local file system accessible test resources.
+#[derive(Debug)]
 pub struct FsData {
+    map: SlotMap<DefaultKey, FsItem>,
 }
 
 #[derive(Debug)]
@@ -28,13 +37,12 @@ enum Source {
         git: git::Git,
     },
     /// The data will be relative to the crate manifest.
-    Local,
+    Local(git::Git),
 }
 
 #[derive(Default, Debug)]
 struct Resources {
-    relative_files: Vec<&'static Path>,
-    relative_dirs: Vec<&'static Path>,
+    relative_files: SlotMap<DefaultKey, FsItem>,
 }
 
 /// A builder for test data.
@@ -154,7 +162,10 @@ pub fn _setup(options: EnvOptions) -> Vcs {
             git,
         }
     } else {
-        Source::Local
+        // Check that we can recognize tracked files.
+        let git = git::Git::new()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+        Source::Local(git)
     };
 
     if repository.is_empty() {
@@ -176,28 +187,87 @@ pub fn _setup(options: EnvOptions) -> Vcs {
 }
 
 impl Vcs {
-    pub fn file(&mut self) -> File {
-        todo!()
+    pub fn file(&mut self, path: impl AsRef<Path>) -> File {
+        fn path_impl(resources: &mut Resources, path: &Path) -> DefaultKey {
+            let item = FsItem::FilePath(path.to_owned());
+            resources.relative_files.insert(item)
+        }
+
+        let key = path_impl(&mut self.resources, path.as_ref());
+        File { key }
     }
 
-    pub fn tree(&mut self) -> Tree {
-        todo!()
+    pub fn tree(&mut self, path: impl AsRef<Path>) -> Tree {
+        fn path_impl(resources: &mut Resources, path: &Path) -> DefaultKey {
+            let item = FsItem::Tree(path.to_owned());
+            resources.relative_files.insert(item)
+        }
+
+        let key = path_impl(&mut self.resources, path.as_ref());
+        Tree { key }
     }
 
     pub fn build(self) -> FsData {
-        todo!()
+        match self.source {
+            Source::Local(git) => {
+                let dir = git::CrateDir::new(self.manifest);
+                dir.tracked(&git, &mut self.resources.path_specs());
+            }
+            Source::VcsFromManifest { commit_id, git } => {
+                let origin = git::Origin {
+                    url: self.repository
+                };
+
+                let gitpath = self.datadir.join("xtest-data-git");
+                let datapath = self.datadir.join("xtest-data-tree");
+                let shallow = git.shallow_clone(gitpath, origin);
+
+                shallow.fetch(&git, commit_id);
+                shallow.checkout(&git, &datapath, commit_id, &mut self.resources.path_specs());
+            }
+        }
+
+        // In the end we just discard some information.
+        // We don't really need it anymore after the checks.
+        //
+        // TODO: of course we could avoid actually checking files onto the disk if we had some kind
+        // of `io::Read` abstraction that read them straight from `git cat` instead. But chances
+        // are you'll like your files and directory structures.
+        FsData {
+            map: self.resources.relative_files,
+        }
     }
 }
 
-impl File {
-    pub fn to_path(&self, fs: &FsData) -> PathBuf {
-        todo!()
+impl Resources {
+    pub fn path_specs(&self) -> impl Iterator<Item=git::PathSpec<'_>> {
+        self.relative_files.values().map(FsItem::as_path_spec)
     }
 }
 
-impl Tree {
-    pub fn to_path(&self, fs: &FsData) -> PathBuf {
-        todo!()
+impl FsData {
+    pub fn file(&self, file: &File) -> &Path {
+        self.map.get(file.key).unwrap().as_path()
+    }
+
+    pub fn tree(&self, tree: &File) -> &Path {
+        self.map.get(tree.key).unwrap().as_path()
+    }
+}
+
+impl FsItem {
+    pub fn as_path(&self) -> &Path {
+        match self {
+            FsItem::Tree(path) | FsItem::FilePath(path) => path,
+        }
+    }
+
+    fn as_path_spec(&self) -> git::PathSpec<'_> {
+        match self {
+            FsItem::FilePath(path) => git::PathSpec::Path(path),
+            // FIXME: more accurate would be to have a spec for the glob `<dir>/**`.
+            FsItem::Tree(path) => git::PathSpec::Path(path),
+        }
     }
 }
 
