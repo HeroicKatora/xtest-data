@@ -6,10 +6,6 @@ publish = false
 repository = "https://github.com/HeroicKatora/xtest-data"
 exclude = ["tests/data.zip"]
 
-[dependencies.hex]
-version = "0.4.3"
-default-features = false
-features = ["alloc"]
 [dependencies.serde_json]
 version = "1"
 default-features = false

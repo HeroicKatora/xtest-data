@@ -69,6 +69,13 @@ impl Git {
     }
 }
 
+impl From<&'_ str> for CommitId {
+    fn from(st: &'_ str) -> CommitId {
+        assert!(st.len() >= 40, "Unlikely to be a safe Git Object ID in vcs pin file: {}", st);
+        CommitId(st.to_owned())
+    }
+}
+
 impl CrateDir {
     pub fn new(path: &'static str, git: &Git) -> Self {
         let dir = CrateDir {
@@ -137,11 +144,11 @@ impl ShallowBareRepository {
         cmd
     }
 
-    pub fn fetch(&self, git: &Git, head: [u8; 20]) {
+    pub fn fetch(&self, git: &Git, head: &CommitId) {
         let mut cmd = self.exec(git);
         cmd.args(["fetch", "--filter=blob:none", "--depth=1"]);
         cmd.arg(self.origin.url.as_str());
-        cmd.arg(hex::encode(head));
+        cmd.arg(&head.0);
         let exit = cmd.output()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
         if !exit.status.success() {
@@ -154,7 +161,7 @@ impl ShallowBareRepository {
         &self,
         git: &Git,
         worktree: &Path,
-        head: [u8; 20],
+        head: &CommitId,
         paths: &mut dyn Iterator<Item=PathSpec<'_>>,
     ) {
         let mut cmd = self.exec(git);
@@ -162,7 +169,7 @@ impl ShallowBareRepository {
         cmd.arg(worktree);
         cmd.args(["checkout", "--no-guess", "--force"]);
         cmd.args(["--pathspec-from-file=-", "--pathspec-file-nul"]);
-        cmd.arg(hex::encode(head));
+        cmd.arg(&head.0);
         cmd.stdin(Stdio::piped());
         let mut running = cmd.spawn().unwrap_or_else(|mut err| inconclusive(&mut err));
         let stdin = running.stdin.as_mut().expect("Spawned with stdio-piped");

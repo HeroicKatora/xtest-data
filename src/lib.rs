@@ -7,7 +7,7 @@
 //! contained in `Cargo.toml`—to be readable by the environment where you wish to test the packaged
 //! crate.
 //!
-//! ```rust
+//! ```rust,no_run
 //! let mut vcs = xtest_data::setup!();
 //! // or any other file you want to use.
 //! let datazip = vcs.file("tests/data.zip");
@@ -90,7 +90,7 @@ enum Source {
     /// The data source is the crate's repository at a specific commit id.
     VcsFromManifest {
         /// TODO: we should support other commit identifiers.
-        commit_id: [u8; 20],
+        commit_id: git::CommitId,
         /// Evidence how we plan to access the source.
         git: git::Git,
     },
@@ -196,16 +196,13 @@ pub fn _setup(options: EnvOptions) -> Vcs {
             .unwrap_or_else(|mut err| inconclusive(&mut err));
         let vcs: Value = serde_json::from_str(&data)
             .unwrap_or_else(|mut err| inconclusive(&mut err));
-        let commit_id: [u8; 20] = vcs
+        let commit_id = vcs
             .get("git")
             .unwrap_or_else(|| inconclusive(&mut "VCS does not contain a git section."))
             .get("sha1")
             .unwrap_or_else(|| inconclusive(&mut "VCS commit ID not recognized."))
             .as_str()
-            .map(|st| {
-                use hex::FromHex;
-                <[u8; 20]>::from_hex(st).unwrap_or_else(|mut err| inconclusive(&mut err))
-            })
+            .map(git::CommitId::from)
             .unwrap_or_else(|| inconclusive(&mut "VCS commit ID is not a string"));
 
         // Okay, that makes sense. We know _what_ to access.
@@ -299,8 +296,8 @@ impl Vcs {
                 fs::create_dir_all(&datapath).unwrap_or_else(|mut err| inconclusive(&mut err));
                 let shallow = git.shallow_clone(gitpath, origin);
 
-                shallow.fetch(&git, commit_id);
-                shallow.checkout(&git, &datapath, commit_id, &mut self.resources.path_specs());
+                shallow.fetch(&git, &commit_id);
+                shallow.checkout(&git, &datapath, &commit_id, &mut self.resources.path_specs());
                 map = SecondaryMap::new();
                 self.resources.relative_files
                     .iter()
