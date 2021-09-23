@@ -6,9 +6,19 @@ publish = false
 repository = "https://github.com/HeroicKatora/xtest-data"
 exclude = ["tests/data.zip"]
 
-[dependencies]
-hex = "0.4.3"
-serde_json = "1"
-slotmap = "1"
-url = "2"
-which = "4.2"
+[dependencies.hex]
+version = "0.4.3"
+default-features = false
+features = ["alloc"]
+[dependencies.serde_json]
+version = "1"
+default-features = false
+features = ["alloc"]
+[dependencies.slotmap]
+version = "1"
+default-features = false
+[dependencies.url]
+version = "2"
+default-features = false
+[dependencies.which]
+version = "4.2"
