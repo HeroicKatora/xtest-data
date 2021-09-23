@@ -39,6 +39,43 @@ impl Git {
         which::which("git").map(|bin| Git { bin })
     }
 
+    pub fn consent_to_use(
+        &self,
+        gitpath: &Path,
+        datapath: &Path,
+        origin: &Origin,
+        commit: &CommitId,
+        resources: &mut dyn Iterator<Item=&Path>,
+        pathspecs: &mut dyn Iterator<Item=PathSpec>,
+    ) {
+        let specs = resources.zip(pathspecs);
+
+        let var = std::env::var("CARGO_XTEST_DATA_FETCH")
+            .map_or_else(|err| {
+                match err {
+                    std::env::VarError::NotPresent => None,
+                    std::env::VarError::NotUnicode(_) => Some("no".into()),
+                }
+            }, Some);
+
+        match var.as_ref().map(String::as_str) {
+            Some("yes") | Some("1") | Some("true") => {},
+            _ => {
+                eprintln!("These tests require additional data from a remote source.");
+                eprintln!("Here is what we planned to do.");
+                eprintln!("Set up bare Git dir in: {}", gitpath.display());
+                eprintln!("Git Origin: {}", origin.url);
+                eprintln!("Fetch Commit: {}", commit.0);
+                eprintln!("Checkout files into: {}", datapath.display());
+                for (resource, pathspec) in specs {
+                    eprintln!("  into {}: {}", resource.display(), pathspec);
+                }
+                eprintln!("Explicit consent can be given by setting CARGO_XTEST_DATA_FETCH=1");
+                inconclusive(&mut "refusing to continue without explicit agreement to network (see error log).")
+            }
+        }
+    }
+
     /// Prepare `path` as a shallow clone of `origin`.
     /// Aborts if this isn't possible (see error handling policy).
     pub fn shallow_clone(&self, path: PathBuf, origin: Origin)

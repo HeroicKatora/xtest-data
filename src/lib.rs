@@ -293,6 +293,15 @@ impl Vcs {
 
                 let gitpath = self.datadir.join("xtest-data-git");
                 let datapath = self.datadir.join("xtest-data-tree");
+
+                git.consent_to_use(
+                    &gitpath,
+                    &datapath,
+                    &origin,
+                    &commit_id,
+                    &mut self.resources.relative_files.values().map(FsItem::as_path),
+                    &mut self.resources.path_specs());
+
                 fs::create_dir_all(&datapath).unwrap_or_else(|mut err| inconclusive(&mut err));
                 let shallow = git.shallow_clone(gitpath, origin);
 
