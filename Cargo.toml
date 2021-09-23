@@ -1,6 +1,8 @@
 [package]
 name = "xtest-data"
 version = "0.0.1"
+description = "Use test data in distributed integration tests without packaging it"
+license = "MIT OR Apache-2.0 OR Zlib"
 edition = "2018"
 repository = "https://github.com/HeroicKatora/xtest-data"
 exclude = ["tests/data.zip"]
