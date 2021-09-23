@@ -339,7 +339,7 @@ impl FsData {
         self.map.get(file.key).unwrap().as_path()
     }
 
-    pub fn tree(&self, tree: &File) -> &Path {
+    pub fn tree(&self, tree: &Tree) -> &Path {
         self.map.get(tree.key).unwrap().as_path()
     }
 }
