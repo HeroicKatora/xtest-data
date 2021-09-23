@@ -3,8 +3,10 @@ name = "xtest-data"
 version = "0.0.1"
 edition = "2018"
 publish = false
+repository = "https://github.com/HeroicKatora/xtest-data"
 
 [dependencies]
 hex = "0.4.3"
 serde_json = "1"
+url = "2"
 which = "4.2"
