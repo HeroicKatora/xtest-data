@@ -25,6 +25,11 @@ pub(crate) struct Origin {
     pub url: Url,
 }
 
+/// A git commit ID.
+/// This is treated as opaque string data. Usually it's a Sha1 hash (20 byte, hex-encoded).
+#[derive(Debug)]
+pub(crate) struct CommitId(String);
+
 pub(crate) enum PathSpec<'lt> {
     Path(&'lt Path),
 }

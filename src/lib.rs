@@ -1,3 +1,45 @@
+//! Fetch test data in packaged crate tests.
+//!
+//! # For crate authors
+//!
+//! Drop these lines into your _integration tests_ (due to a limitation in `cargo` this will only
+//! work in integration tests right now¹). Note that this requires your repository—through the URL
+//! contained in `Cargo.toml`—to be readable by the environment where you wish to test the packaged
+//! crate.
+//!
+//! ```rust
+//! let mut vcs = xtest_data::setup!();
+//! // or any other file you want to use.
+//! let datazip = vcs.file("tests/data.zip");
+//! let testdata = vcs.build();
+//!
+//! // access its path via the xtest-data object, not directly
+//! let path = testdata.file(&datazip);
+//! // … and the crate works its magic to make this succeed.
+//! assert!(path.exists(), "{}", path.display());
+//! ```
+//!
+//! # For packagers
+//!
+//! The `.crate` file you have downloaded is a `.tar.gz` in disguise. When you unpack it for your
+//! local build steps etc., verify that this package contains `Cargo.toml.orig` as well as a
+//! `.cargo_vcs_info.json` file; and that the latter file has git commit information.
+//!
+//! Then you can then run the tests:
+//!
+//! ```bash
+//! cargo test -- --nocapture
+//! ```
+//!
+//! Don't worry, this won't access the network yet.  In the first step it will only verify the
+//! basic installation. It will then panic while printing information on what it _would have_ done
+//! and instructions on how to proceed. You can opt into allow network access by default with:
+//!
+//! ```bash
+//! CARGO_XTEST_DATA_FETCH=yes cargo test -- --nocapture
+//! ```
+//!
+//! ¹We need a place to store a shallow clone of the crate's source repository.
 mod git;
 
 use std::{fs, path::Path, path::PathBuf};
@@ -5,11 +47,22 @@ use serde_json::Value;
 use slotmap::{DefaultKey, SecondaryMap, SlotMap};
 use url::Url;
 
+/// A file that was registered from [`Vcs`].
+///
+/// This is a key into [`FsData`]. You can retrieve the local path using [`FsData::file()`]. The
+/// returned path is either the local path on disk, when you are currently developing under a local
+/// checkout of the version control system, or the path into which the file has been checked out.
 #[derive(Debug)]
 pub struct File {
     key: DefaultKey,
 }
 
+/// A key into [`FsData`] that was previously registered from [`Vcs`].
+///
+/// This is a key into [`FsData`]. You can retrieve the local path using [`FsData::tree()`]. The
+/// returned path is either the local path on disk, when you are currently developing under a local
+/// checkout of the version control system, or the path into which the whole tree has been checked
+/// out.
 #[derive(Debug)]
 pub struct Tree {
     key: DefaultKey,
@@ -22,6 +75,9 @@ enum FsItem {
 }
 
 /// The product of `Vcs`, ensuring local file system accessible test resources.
+///
+/// This object is used to retrieve the local paths of resources that have been registered with the
+/// methods [`Vcs::file()`] and [`Vcs::tree()`] before.
 #[derive(Debug)]
 pub struct FsData {
     /// Map all configured items to their paths.
@@ -94,19 +150,18 @@ pub struct EnvOptions {
 ///
 /// This function _panics_ if any of the following is true:
 /// * The function is called outside of an integration test.
-///
-/// Also, this function **aborts** the process if any of the following are true:
 /// * There is no VCS in use.
 /// * We could not determine how to use the VCS of the repository.
 /// * The repository URL as configured in `Cargo.toml` is not valid.
 /// * We could not create a bare repository in the directory `${CARGO_TARGET_TMPDIR}`.
 ///
-/// When executing from the distribution form of a package, we will also abort if any of the
+/// When executing from the distribution form of a package, we will also panic if any of the
 /// following are true:
 /// * The commit ID that is being read from `.cargo_vcs_info.json` can not be fetched from the
 ///   remote repository.
+/// * There is no `.cargo_vcs_info.json` and the manifest is _not_ in a VCS folder.
 ///
-/// Note that the eventual call to `build()` has some additional panics and aborts.
+/// Note that the eventual call to `build()` has some additional panics.
 #[macro_export]
 macro_rules! setup {
     () => {
@@ -189,6 +244,9 @@ pub fn _setup(options: EnvOptions) -> Vcs {
 }
 
 impl Vcs {
+    /// Register the path of a file.
+    ///
+    /// The return value is a key that can later be used in [`FsData`].
     pub fn file(&mut self, path: impl AsRef<Path>) -> File {
         fn path_impl(resources: &mut Resources, path: &Path) -> DefaultKey {
             let item = FsItem::FilePath(path.to_owned());
@@ -209,6 +267,14 @@ impl Vcs {
         Tree { key }
     }
 
+    /// Run the final validation and return the frozen dictionary of file data.
+    ///
+    /// ## Panics
+    ///
+    /// This will panic if:
+    /// * Any registered file or tree is not tracked in the VCS.
+    /// * You have not allowed retrieving data from the VCS.
+    /// * It was not possible to retrieve the data from the VCS.
     pub fn build(self) -> FsData {
         let mut map;
         match self.source {
@@ -292,5 +358,5 @@ impl FsItem {
 fn inconclusive(err: &mut dyn std::fmt::Display) -> ! {
     eprintln!("xtest-data failed to setup.");
     eprintln!("Information: {}", err);
-    std::process::abort()
+    panic!();
 }
