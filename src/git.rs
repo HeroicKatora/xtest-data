@@ -85,17 +85,28 @@ impl CrateDir {
         paths: &mut dyn Iterator<Item=PathSpec<'_>>,
     ) {
         let mut cmd = self.exec(git);
+        cmd.stdout(Stdio::piped());
         cmd.args(["status", "--no-renames", "--ignored=matching", "--porcelain=v2", "--short", "-z"]);
         cmd.arg("--");
-        cmd.args(paths.map(|st| st.to_string()));
-        cmd.stdout(Stdio::piped());
+        let mut any = false;
+        cmd.args(paths.map(|st| {
+            any = true;
+            st.to_string()
+        }));
+
+        if !any {
+            return;
+        }
+
         let output = cmd.output().unwrap_or_else(|mut err| inconclusive(&mut err));
         let items = String::from_utf8(output.stdout)
             .unwrap_or_else(|mut err| inconclusive(&mut err));
         for item in items.split('\0') {
             if item.starts_with('!') {
+                eprintln!("{}", item);
                 inconclusive(&mut "Your test depends on ignored file(s)");
             } else if item.starts_with('?') {
+                eprintln!("{}", item);
                 inconclusive(&mut "Your test depends on untracked file(s)");
             }
         }
