@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2018"
 publish = false
 repository = "https://github.com/HeroicKatora/xtest-data"
+exclude = ["tests/data.zip"]
 
 [dependencies]
 hex = "0.4.3"

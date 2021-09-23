@@ -5,5 +5,5 @@ fn integration_test_ourselves() {
     let testdata = vcs.build();
 
     let path = testdata.file(&datazip);
-    assert!(path.exists());
+    assert!(path.exists(), "{}", path.display());
 }
