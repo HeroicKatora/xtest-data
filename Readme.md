@@ -40,6 +40,15 @@ fetch—and then instantly panic. However, if the environment variable
 `CARGO_XTEST_DATA_FETCH` is set to `yes`, `true` or `1` then we will try
 to download and checkout requested files to the relative location.
 
+## Known problems
+
+When fetching data, git keeps asking for credentials. This is because we are
+shelling out to Git and `git checkout`, which we utilize to very selectively
+unshallow the commit at the exact path specs which we require, does not keep
+the connection alive—even when you give it multiple pathspecs at the same time
+through `--pathspecs-from-file=-`. A workaround is to setup a local agent and
+purge that afterwards or to create a short-lived token instead.
+
 ## Ideas for future work
 
 As a [cargo xtask][cargo-xtask]. However, the idea of an xtask is that the
