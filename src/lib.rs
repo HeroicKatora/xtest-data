@@ -2,7 +2,7 @@ mod git;
 
 use std::{fs, path::Path, path::PathBuf};
 use serde_json::Value;
-use slotmap::{DefaultKey, SlotMap};
+use slotmap::{DefaultKey, SecondaryMap, SlotMap};
 use url::Url;
 
 #[derive(Debug)]
@@ -24,7 +24,9 @@ enum FsItem {
 /// The product of `Vcs`, ensuring local file system accessible test resources.
 #[derive(Debug)]
 pub struct FsData {
-    map: SlotMap<DefaultKey, FsItem>,
+    /// Map all configured items to their paths.
+    /// This map will essentially be constant and we do not care about the VCS interpretation.
+    map: SecondaryMap<DefaultKey, PathBuf>,
 }
 
 #[derive(Debug)]
@@ -208,10 +210,18 @@ impl Vcs {
     }
 
     pub fn build(self) -> FsData {
+        let mut map;
         match self.source {
             Source::Local(git) => {
-                let dir = git::CrateDir::new(self.manifest);
+                let dir = git::CrateDir::new(self.manifest, &git);
+                let datapath = Path::new(self.manifest);
                 dir.tracked(&git, &mut self.resources.path_specs());
+                map = SecondaryMap::new();
+                self.resources.relative_files
+                    .iter()
+                    .for_each(|(key, path)| {
+                        map.insert(key, datapath.join(path.as_path()));
+                    });
             }
             Source::VcsFromManifest { commit_id, git } => {
                 let origin = git::Origin {
@@ -220,10 +230,17 @@ impl Vcs {
 
                 let gitpath = self.datadir.join("xtest-data-git");
                 let datapath = self.datadir.join("xtest-data-tree");
+                fs::create_dir_all(&datapath).unwrap_or_else(|mut err| inconclusive(&mut err));
                 let shallow = git.shallow_clone(gitpath, origin);
 
                 shallow.fetch(&git, commit_id);
                 shallow.checkout(&git, &datapath, commit_id, &mut self.resources.path_specs());
+                map = SecondaryMap::new();
+                self.resources.relative_files
+                    .iter()
+                    .for_each(|(key, path)| {
+                        map.insert(key, datapath.join(path.as_path()));
+                    });
             }
         }
 
@@ -234,7 +251,7 @@ impl Vcs {
         // of `io::Read` abstraction that read them straight from `git cat` instead. But chances
         // are you'll like your files and directory structures.
         FsData {
-            map: self.resources.relative_files,
+            map,
         }
     }
 }

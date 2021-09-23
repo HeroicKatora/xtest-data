@@ -65,8 +65,15 @@ impl Git {
 }
 
 impl CrateDir {
-    pub fn new(path: &'static str) -> Self {
-        CrateDir { path: Path::new(path).to_owned() }
+    pub fn new(path: &'static str, git: &Git) -> Self {
+        let dir = CrateDir {
+            path: Path::new(path).to_owned()
+        };
+
+        let mut cmd = dir.exec(git);
+        cmd.args(["status", "--short"]);
+        cmd.status().unwrap_or_else(|mut err| inconclusive(&mut err));
+        dir
     }
 
     pub fn exec(&self, git: &Git) -> Command {
@@ -121,15 +128,21 @@ impl ShallowBareRepository {
         // Ensure we open _no_ handles.
         // Override this later if necessary.
         cmd.stdout(Stdio::null());
-        cmd.stderr(Stdio::null());
+        cmd.stderr(Stdio::piped());
         cmd
     }
 
     pub fn fetch(&self, git: &Git, head: [u8; 20]) {
         let mut cmd = self.exec(git);
         cmd.args(["fetch", "--filter=blob:none", "--depth=1"]);
+        cmd.arg(self.origin.url.as_str());
         cmd.arg(hex::encode(head));
-        cmd.status().unwrap_or_else(|mut err| inconclusive(&mut err));
+        let exit = cmd.output()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+        if !exit.status.success() {
+            eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
+            inconclusive(&mut "Git operation was not successful");
+        }
     }
 
     pub fn checkout(
@@ -153,6 +166,12 @@ impl ShallowBareRepository {
             write!(stdin, "{}\0", path).unwrap_or_else(|mut err| inconclusive(&mut err));
         }
         running.stdin = None;
+        let exit = running.wait_with_output()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+        if !exit.status.success() {
+            eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
+            inconclusive(&mut "Git operation was not successful");
+        }
     }
 }
 
