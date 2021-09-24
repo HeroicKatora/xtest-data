@@ -201,6 +201,84 @@ impl ShallowBareRepository {
         head: &CommitId,
         paths: &mut dyn Iterator<Item=PathSpec<'_>>,
     ) {
+        let mut simple_filter = vec![];
+        let paths: Vec<_> = paths
+            .filter_map(|path| {
+                if let Some(sparse_compatible) = path.as_encompassing_path() {
+                    // Look, we don't have proper escaping for it yet and no NUL separator.
+                    let format = sparse_compatible.display().to_string();
+                    if format.contains('\n') || format.contains('\0') /* ?? */ {
+                        return Some(path)
+                    }
+
+                    simple_filter.push(path);
+                    None
+                } else { 
+                    Some(path)
+                }
+            })
+            .collect();
+
+        // First setup sparse-checkout
+        // Note that this is in beta and not supported, so let's fallback if necessary.
+        let try_sparse_checkout = || -> std::io::Result<()> {
+            let mut cmd = self.exec(git);
+            cmd.arg("--work-tree");
+            cmd.arg(worktree);
+            cmd.args(["sparse-checkout", "set", "--stdin"]);
+            cmd.stdin(Stdio::piped());
+            let mut running = cmd.spawn()?;
+            let stdin = running.stdin.as_mut().expect("Spawned with stdio-piped");
+            for path in &simple_filter {
+                let simple = path.as_encompassing_path().unwrap().display().to_string();
+                use std::io::Write;
+                // > This includes interpreting pathnames that begin with a double quote (") as C-style quoted strings.
+                // Since there is no NUL separation (yet?) we use this.
+                eprintln!("{}", simple);
+                writeln!(stdin, "{}", simple).unwrap_or_else(|mut err| inconclusive(&mut err));
+            }
+            running.stdin = None;
+            let exit = running.wait_with_output()?;
+            if !exit.status.success() {
+                return Err(std::io::ErrorKind::Other.into())
+            }
+            Ok(())
+        };
+
+        if let Err(err) = try_sparse_checkout() {
+            eprintln!("Version of Git appears to not support sparse-checkout: {}", err);
+            let mut all_again = simple_filter.into_iter().chain(paths);
+            return self.checkout_fallback_slow(git, worktree, head, &mut all_again);
+        }
+
+        let mut cmd = self.exec(git);
+        cmd.arg("--work-tree");
+        eprintln!("Checkout to worktree {}", worktree.display());
+        cmd.arg(worktree);
+        cmd.arg("checkout");
+        cmd.arg("--force");
+        cmd.arg(&head.0);
+        let exit = cmd.output()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+        if !exit.status.success() {
+            eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
+            inconclusive(&mut "Git operation was not successful");
+        }
+
+        self.checkout_fallback_slow(git, worktree, head, &mut paths.into_iter());
+    }
+
+
+    /// A version of `checkout` that uses checkout and a list pathspecs from stdin to determine the
+    /// files in the worktree. However, it appears that this cases git to open a connection to the
+    /// remote _for every single one_.
+    pub fn checkout_fallback_slow(
+        &self,
+        git: &Git,
+        worktree: &Path,
+        head: &CommitId,
+        paths: &mut dyn Iterator<Item=PathSpec<'_>>,
+    ) {
         let mut cmd = self.exec(git);
         cmd.arg("--work-tree");
         cmd.arg(worktree);
@@ -220,6 +298,16 @@ impl ShallowBareRepository {
         if !exit.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
             inconclusive(&mut "Git operation was not successful");
+        }
+    }
+}
+
+impl PathSpec<'_> {
+    /// For git sparse checkout.
+    pub fn as_encompassing_path(&self) -> Option<&Path> {
+        match self {
+            PathSpec::Path(path) => Some(path),
+            // Should return None for a glob-filtered path since that is not supported.
         }
     }
 }
