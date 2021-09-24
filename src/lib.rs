@@ -7,7 +7,7 @@
 //! contained in `Cargo.toml`—to be readable by the environment where you wish to test the packaged
 //! crate.
 //!
-//! ```rust,no_run
+//! ```rust
 //! let mut vcs = xtest_data::setup!();
 //! // or any other file you want to use.
 //! let datazip = vcs.file("tests/data.zip");
@@ -42,7 +42,7 @@
 //! ¹We need a place to store a shallow clone of the crate's source repository.
 mod git;
 
-use std::{fs, path::Path, path::PathBuf};
+use std::{borrow::Cow, fs, path::Path, path::PathBuf};
 use serde_json::Value;
 use slotmap::{DefaultKey, SecondaryMap, SlotMap};
 use url::Url;
@@ -99,6 +99,8 @@ enum Source {
         commit_id: git::CommitId,
         /// Evidence how we plan to access the source.
         git: git::Git,
+        /// The directory where we may put git-dir and checkout of the resources.
+        datadir: PathBuf,
     },
     /// The data will be relative to the crate manifest.
     Local(git::Git),
@@ -125,8 +127,6 @@ pub struct Vcs<'paths> {
     source: Source,
     /// The resources that we store.
     resources: Resources<'paths>,
-    /// The directory where we may put git-dir and checkout of the resources.
-    datadir: PathBuf,
 }
 
 /// The options determined from the environment.
@@ -196,8 +196,7 @@ pub fn _setup(options: EnvOptions) -> Vcs<'static> {
     // Make sure this is an integration test, or at least we have the dir.
     // We don't want to block building over this (e.g. the crate itself here) but we _do_ want to
     // restrict running this `setup` function
-    let integration_test_tempdir = tmpdir
-        .expect("This setup must only be called in an integration test or benchmark");
+    let integration_test_tempdir = tmpdir;
 
     let vcs_info_path = Path::new(manifest).join(".cargo_vcs_info.json");
 
@@ -221,9 +220,21 @@ pub fn _setup(options: EnvOptions) -> Vcs<'static> {
         let git = git::Git::new()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
 
+        let tmpdir = integration_test_tempdir
+            .map(Cow::Borrowed)
+            .or_else(|| {
+                let tmpdir = std::env::var("TMPDIR").ok()?;
+                // TODO: nah, in this case we should have some distinguisher for the exact crate
+                // name and version in the tmpdir. At least that would catch the gravest of errors
+                // when testing many crates at the same time. (Although sharing the git dir would
+                // be an advantage).
+                Some(Cow::Owned(tmpdir))
+            }).expect("This setup must only be called in an integration test or benchmark, or with an explicit TMPDIR"); 
+
         Source::VcsFromManifest {
             commit_id,
             git,
+            datadir: PathBuf::from(&*tmpdir),
         }
     } else {
         // Check that we can recognize tracked files.
@@ -246,7 +257,6 @@ pub fn _setup(options: EnvOptions) -> Vcs<'static> {
         manifest,
         source,
         resources: Resources::default(),
-        datadir: PathBuf::from(integration_test_tempdir),
     }
 }
 
@@ -313,13 +323,13 @@ impl<'lt> Vcs<'lt> {
                     .into_iter()
                     .for_each(|item| item.root(&datapath));
             }
-            Source::VcsFromManifest { commit_id, git } => {
+            Source::VcsFromManifest { commit_id, datadir, git, } => {
                 let origin = git::Origin {
                     url: self.repository
                 };
 
-                let gitpath = self.datadir.join("xtest-data-git");
-                let datapath = self.datadir.join("xtest-data-tree");
+                let gitpath = datadir.join("xtest-data-git");
+                let datapath = datadir.join("xtest-data-tree");
 
                 git.consent_to_use(
                     &gitpath,
