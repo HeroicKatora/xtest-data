@@ -69,9 +69,15 @@ pub struct Tree {
 }
 
 #[derive(Debug)]
-enum FsItem {
+enum Managed {
     FilePath(PathBuf),
     Tree(PathBuf),
+}
+
+#[derive(Debug)]
+pub enum FsItem<'lt> {
+    File(&'lt mut PathBuf),
+    Tree(&'lt mut PathBuf),
 }
 
 /// The product of `Vcs`, ensuring local file system accessible test resources.
@@ -99,8 +105,10 @@ enum Source {
 }
 
 #[derive(Default, Debug)]
-struct Resources {
-    relative_files: SlotMap<DefaultKey, FsItem>,
+struct Resources<'paths> {
+    relative_files: SlotMap<DefaultKey, Managed>,
+    /// Resources where we do 'simple' path replacement in a filter style.
+    unmanaged: Vec<FsItem<'paths>>,
 }
 
 /// A builder for test data.
@@ -110,12 +118,14 @@ struct Resources {
 /// necessary data before we abort.
 #[must_use = "This is only a builder. Call `build` to perform validation/fetch/etc."]
 #[derive(Debug)]
-pub struct Vcs {
+pub struct Vcs<'paths> {
     repository: Url,
     manifest: &'static str,
     /// Have we determined to be local or in a crate?.
     source: Source,
-    resources: Resources,
+    /// The resources that we store.
+    resources: Resources<'paths>,
+    /// The directory where we may put git-dir and checkout of the resources.
     datadir: PathBuf,
 }
 
@@ -177,7 +187,7 @@ macro_rules! setup {
 }
 
 #[doc(hidden)]
-pub fn _setup(options: EnvOptions) -> Vcs {
+pub fn _setup(options: EnvOptions) -> Vcs<'static> {
     let EnvOptions {
         pkg_repository: repository,
         manifest_dir: manifest,
@@ -240,13 +250,27 @@ pub fn _setup(options: EnvOptions) -> Vcs {
     }
 }
 
-impl Vcs {
+impl<'lt> Vcs<'lt> {
+    /// Register some paths to rewrite to their location.
+    ///
+    /// The paths will be registered internally. If the repository is local they will be rewritten
+    /// to be relative to the manifest location. If the repository is a crate distribution then the
+    /// paths will be sparsely checked out (meaning: only that path will be downloaded from the VCS
+    /// working dir and you can't expect any other files to be present).
+    ///
+    /// Both of those actions will happen when you call [`build()`].
+    pub fn filter(mut self, iter: impl IntoIterator<Item=FsItem<'lt>>) -> Self {
+        self.resources.unmanaged.extend(iter);
+        self
+    }
+
+
     /// Register the path of a file.
     ///
     /// The return value is a key that can later be used in [`FsData`].
     pub fn file(&mut self, path: impl AsRef<Path>) -> File {
         fn path_impl(resources: &mut Resources, path: &Path) -> DefaultKey {
-            let item = FsItem::FilePath(path.to_owned());
+            let item = Managed::FilePath(path.to_owned());
             resources.relative_files.insert(item)
         }
 
@@ -256,7 +280,7 @@ impl Vcs {
 
     pub fn tree(&mut self, path: impl AsRef<Path>) -> Tree {
         fn path_impl(resources: &mut Resources, path: &Path) -> DefaultKey {
-            let item = FsItem::Tree(path.to_owned());
+            let item = Managed::Tree(path.to_owned());
             resources.relative_files.insert(item)
         }
 
@@ -285,6 +309,9 @@ impl Vcs {
                     .for_each(|(key, path)| {
                         map.insert(key, datapath.join(path.as_path()));
                     });
+                self.resources.unmanaged
+                    .into_iter()
+                    .for_each(|item| item.root(&datapath));
             }
             Source::VcsFromManifest { commit_id, git } => {
                 let origin = git::Origin {
@@ -299,7 +326,7 @@ impl Vcs {
                     &datapath,
                     &origin,
                     &commit_id,
-                    &mut self.resources.relative_files.values().map(FsItem::as_path),
+                    &mut self.resources.as_paths(),
                     &mut self.resources.path_specs());
 
                 fs::create_dir_all(&datapath).unwrap_or_else(|mut err| inconclusive(&mut err));
@@ -313,6 +340,9 @@ impl Vcs {
                     .for_each(|(key, path)| {
                         map.insert(key, datapath.join(path.as_path()));
                     });
+                self.resources.unmanaged
+                    .into_iter()
+                    .for_each(|item| item.root(&datapath));
             }
         }
 
@@ -328,9 +358,17 @@ impl Vcs {
     }
 }
 
-impl Resources {
+impl Resources<'_> {
+    pub fn as_paths(&self) -> impl Iterator<Item=&'_ Path> {
+        let values = self.relative_files.values().map(Managed::as_path);
+        let unmanaged = self.unmanaged.iter().map(FsItem::as_path);
+        values.chain(unmanaged)
+    }
+
     pub fn path_specs(&self) -> impl Iterator<Item=git::PathSpec<'_>> {
-        self.relative_files.values().map(FsItem::as_path_spec)
+        let values = self.relative_files.values().map(Managed::as_path_spec);
+        let unmanaged = self.unmanaged.iter().map(FsItem::as_path_spec);
+        values.chain(unmanaged)
     }
 }
 
@@ -344,18 +382,47 @@ impl FsData {
     }
 }
 
-impl FsItem {
+impl Managed {
     pub fn as_path(&self) -> &Path {
         match self {
-            FsItem::Tree(path) | FsItem::FilePath(path) => path,
+            Managed::Tree(path) | Managed::FilePath(path) => path,
         }
     }
 
     fn as_path_spec(&self) -> git::PathSpec<'_> {
         match self {
-            FsItem::FilePath(path) => git::PathSpec::Path(path),
+            Managed::FilePath(path) => git::PathSpec::Path(path),
+            // FIXME: more accurate would be to have a spec for the glob `<dir>/**`.
+            Managed::Tree(path) => git::PathSpec::Path(path),
+        }
+    }
+}
+
+impl FsItem<'_> {
+    pub fn as_path(&self) -> &Path {
+        match self {
+            FsItem::Tree(path) | FsItem::File(path) => path,
+        }
+    }
+
+    fn as_path_spec(&self) -> git::PathSpec<'_> {
+        match self {
+            FsItem::File(path) => git::PathSpec::Path(path),
             // FIXME: more accurate would be to have a spec for the glob `<dir>/**`.
             FsItem::Tree(path) => git::PathSpec::Path(path),
+        }
+    }
+
+    fn root(self, root: &Path) {
+        let path = self.into_mut();
+        *path = root.join(&path);
+    }
+}
+
+impl<'lt> FsItem<'lt> {
+    fn into_mut(self) -> &'lt mut PathBuf {
+        match self {
+            FsItem::Tree(path) | FsItem::File(path) => path,
         }
     }
 }

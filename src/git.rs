@@ -114,7 +114,7 @@ impl From<&'_ str> for CommitId {
 }
 
 impl CrateDir {
-    pub fn new(path: &'static str, git: &Git) -> Self {
+    pub fn new(path: &str, git: &Git) -> Self {
         let dir = CrateDir {
             path: Path::new(path).to_owned()
         };
