@@ -15,15 +15,37 @@ validation layer. In particular, the library will assert that the files are
 accessible through the current VCS state.
 
 ```rust
-let setup = xtest_data::setup!();
-let xfile = setup.file("tests/data.bin");
-let xdata = setup.build();
-
-let path = xdata.file(&xfile);
+let mut path = PathBuf::from("tests/data.zip");
+xtest_data::setup!()
+    .filter([FsItem::File(&mut path)])
+    .build();
+// 'Magically' changed.
+assert!(path.exists(), "{}", path.display());
 ```
 
 Note the calls above are infallible—they will panic when something is missing
-since this indicates absent data.
+since this indicates absent data. The reasoning is that this indicates a faulty
+setup, not something the test should handle.
+
+## Customization points
+
+In all settings, the `xtest_data` will inspect the following:
+* The `Cargo.toml` file located in the `CARGO_MANIFEST_DIR` will be read,
+  decoded and must at least contain the keys `package.name`, `package.version`,
+  `package.repository`.
+
+In a non-source setting (i.e. when running from a downloaded crate) the
+`xtest_data` package will read the following environment variables:
+
+* `CARGO_XTEST_DATA_TMPDIR` (fallback: `TMPDIR`) is required to be set when any
+  of the tests are _NOT_ integration tests.
+* `CARGO_XTEST_DATA_REPOSITORY_ORIGIN`: Can be set to override the Git url that
+  is used as the source repository. Otherwise the repository from the package
+  data is used.
+* `CARGO_XTEST_DATA_FETCH`: If set to `1`, `yes`, `true` then it will try to
+  make a network connection, fetch data from the source repository. If _not_
+  set then it will print a plan of what it intended to do and which files it
+  would request (as git pathspecs) from which commit, and then panic.
 
 ## How it works
 
@@ -42,12 +64,22 @@ to download and checkout requested files to the relative location.
 
 ## Known problems
 
-When fetching data, git keeps asking for credentials. This is because we are
-shelling out to Git and `git checkout`, which we utilize to very selectively
-unshallow the commit at the exact path specs which we require, does not keep
-the connection alive—even when you give it multiple pathspecs at the same time
-through `--pathspecs-from-file=-`. A workaround is to setup a local agent and
-purge that afterwards or to create a short-lived token instead.
+You can not yet run tests in parallel. Pass `--test-threads 1` to all tests as
+a workaround. The underlying issue is two-fold: most git operations don't fully
+lock everything. For example, cloning twice into the same directory goes
+horribly wrong. Additionally, the `xtest_data` package reuses the same worktree
+directory. Since we are performing sparse checkouts, that tests might use
+conflicting trees.
+
+When fetching data, git may repeatedly ask for credentials and is pretty slow.
+This issue should not occur when `git` supports `sparse-checkout`. This is
+because we are shelling out to Git and `git checkout`, which we utilize to very
+selectively unshallow the commit at the exact path specs which we require, does
+not keep the connection alive—even when you give it multiple pathspecs at the
+same time through `--pathspecs-from-file=-`. With `sparse-checkout`, however,
+we only call this once which lowers the number of connection attempts. A
+workaround is to setup a local agent and purge that afterwards or to create a
+short-lived token instead.
 
 ## Ideas for future work
 

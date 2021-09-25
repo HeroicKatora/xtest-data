@@ -40,6 +40,7 @@
 //! ```
 //!
 //! ¹We need a place to store a shallow clone of the crate's source repository.
+#![forbid(unsafe_code)]
 mod git;
 
 use std::{borrow::Cow, env, fs, path::Path, path::PathBuf};
@@ -193,8 +194,11 @@ pub fn _setup(options: EnvOptions) -> Vcs<'static> {
         manifest_dir: manifest,
         target_tmpdir: tmpdir,
     } = options;
+    if repository.is_empty() {
+        inconclusive(&mut "The crate must have a valid URL in `package.repository`");
+    }
 
-    // Allow the override.
+    // Now allow the override.
     let repository = env::var("CARGO_XTEST_DATA_REPOSITORY_ORIGIN")
         .ok()
         .unwrap_or(String::from(repository));
@@ -202,11 +206,13 @@ pub fn _setup(options: EnvOptions) -> Vcs<'static> {
     // Make sure this is an integration test, or at least we have the dir.
     // We don't want to block building over this (e.g. the crate itself here) but we _do_ want to
     // restrict running this `setup` function
-    let integration_test_tempdir = tmpdir;
+    let integration_test_tempdir = tmpdir.map(Path::new);
 
     let vcs_info_path = Path::new(manifest).join(".cargo_vcs_info.json");
 
     let source = if vcs_info_path.exists() {
+        // Allow the override.
+
         let data = fs::read_to_string(vcs_info_path)
             .unwrap_or_else(|mut err| inconclusive(&mut err));
         let vcs: Value = serde_json::from_str(&data)
@@ -226,21 +232,25 @@ pub fn _setup(options: EnvOptions) -> Vcs<'static> {
         let git = git::Git::new()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
 
-        let tmpdir = integration_test_tempdir
+        let datadir = integration_test_tempdir
             .map(Cow::Borrowed)
             .or_else(|| {
-                let tmpdir = std::env::var("TMPDIR").ok()?;
-                // TODO: nah, in this case we should have some distinguisher for the exact crate
-                // name and version in the tmpdir. At least that would catch the gravest of errors
-                // when testing many crates at the same time. (Although sharing the git dir would
-                // be an advantage).
-                Some(Cow::Owned(tmpdir))
-            }).expect("This setup must only be called in an integration test or benchmark, or with an explicit TMPDIR"); 
+                    let environment_temp = std::env::var_os("CARGO_XTEST_DATA_TMPDIR")
+                        .or_else(|| std::env::var_os("TMPDIR"))
+                        .map(PathBuf::from)?;
+                    // TODO: nah, in this case we should have some distinguisher for the exact crate
+                    // name and version in the tmpdir. At least that would catch the gravest of errors
+                    // when testing many crates at the same time. (Although sharing the git dir would
+                    // be an advantage).
+                    Some(Cow::Owned(environment_temp))
+                })
+            .expect("This setup must only be called in an integration test or benchmark, or with an explicit TMPDIR")
+            .into_owned();
 
         Source::VcsFromManifest {
             commit_id,
             git,
-            datadir: PathBuf::from(&*tmpdir),
+            datadir,
         }
     } else {
         // Check that we can recognize tracked files.
@@ -249,6 +259,7 @@ pub fn _setup(options: EnvOptions) -> Vcs<'static> {
         Source::Local(git)
     };
 
+    // And finally this must be valid.
     if repository.is_empty() {
         inconclusive(&mut "The repository must have a valid URL");
     }

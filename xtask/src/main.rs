@@ -47,7 +47,7 @@ fn main() -> Result<(), io::Error> {
     // TMPDIR=/tmp CARGO_XTEST_DATA_FETCH=1 cargo test  -- --nocapture
     Command::new(CARGO)
         .current_dir(&extracted)
-        .args(["test", "--", "--nocapture"])
+        .args(["test", "--", "--nocapture", "--test-threads", "1"])
         .env("TMPDIR", &tmp)
         .env("CARGO_XTEST_DATA_FETCH", "yes")
         .env("CARGO_XTEST_DATA_REPOSITORY_ORIGIN", format!("file://{}", repo.display()))
