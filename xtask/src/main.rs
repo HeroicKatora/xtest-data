@@ -3,6 +3,7 @@ use std::process::{Command, Stdio, Output};
 use std::path::{Path, PathBuf};
 
 use toml::Value;
+use tempdir::TempDir;
 
 // Use the same host-binary as is building us.
 const CARGO: &'static str = env!("CARGO");
@@ -17,14 +18,21 @@ fn main() -> Result<(), LocatedError> {
     let target = Target::from_current_dir()?;
     let filename = target.expected_crate_name();
 
-    let tmp = env::var_os("TMPDIR")
-        .map_or_else(|| Path::new("/tmp").to_owned(), PathBuf::from);
-    let extracted = tmp.join(target.expected_dir_name());
-
     Command::new(CARGO)
         .args(["package", "--no-verify"])
         .success()
         .map_err(anchor_error())?;
+
+    let mut private_tempdir = None;
+    let tmp = env::var_os("TMPDIR")
+        .map_or_else(|| {
+            let temp = TempDir::new_in("target", "xtest_data-")
+                .expect("to create a temporary directory");
+            let temp = private_tempdir.insert(temp);
+            temp.path().to_owned()
+        }, PathBuf::from);
+    let extracted = tmp.join(target.expected_dir_name());
+
     // Try to remove it but ignore failure.
     let _ = fs::remove_dir_all(&extracted)
         .map_err(anchor_error());
@@ -35,6 +43,7 @@ fn main() -> Result<(), LocatedError> {
         .output()
         .map_err(anchor_error())?
         .stdout;
+
     // tar -C /tmp --extract --file -
     Command::new("tar")
         .arg("-C")
@@ -207,18 +216,22 @@ impl ParseOutput for Output {
     }
 }
 
+/// Create an IO error, with its message just point to the source.
 #[track_caller]
 fn undiagnosed_io_error() -> impl FnMut() -> io::Error {
     let location = std::panic::Location::caller();
     move || io::Error::new(io::ErrorKind::Other, location.to_string())
 }
 
+/// Rewrap an error as IO error because we're lazy and this is a decent enough error type.
 fn as_io_error<T>(err: T) -> io::Error
     where T: Into<Box<dyn std::error::Error + Send + Sync>>
 {
     io::Error::new(io::ErrorKind::Other, err)
 }
 
+/// Wrap the errors in such a way that we can figure out where they came from.
+/// It's kind of amazing that this is stable o_o
 #[track_caller]
 fn anchor_error() -> impl FnMut(io::Error) -> LocatedError {
     let location = std::panic::Location::caller();

@@ -5,4 +5,5 @@ edition = "2018"
 publish = false
 
 [dependencies]
+tempdir = "0.3.7"
 toml = "0.5"
