@@ -1,6 +1,6 @@
 use std::path::{PathBuf, Path};
 use std::process::{Command, Stdio};
-use url::Url;
+use std::ffi::OsString;
 
 use crate::inconclusive;
 
@@ -22,7 +22,7 @@ pub(crate) struct CrateDir {
 }
 
 pub(crate) struct Origin {
-    pub url: Url,
+    pub url: OsString,
 }
 
 /// A git commit ID.
@@ -64,7 +64,7 @@ impl Git {
                 eprintln!("These tests require additional data from a remote source.");
                 eprintln!("Here is what we planned to do.");
                 eprintln!("Set up bare Git dir in: {}", gitpath.display());
-                eprintln!("Git Origin: {}", origin.url);
+                eprintln!("Git Origin: {}", Path::new(&origin.url).display());
                 eprintln!("Fetch Commit: {}", commit.0);
                 eprintln!("Checkout files into: {}", datapath.display());
                 for (resource, pathspec) in specs {
@@ -91,7 +91,7 @@ impl Git {
             // clone [options…]
             cmd.args(["clone", "--bare", "--no-checkout", "--filter=blob:none", "--depth=1", "--"]);
             // <repository>
-            cmd.arg(repo.origin.url.as_str());
+            cmd.arg(&repo.origin.url);
             // [<target>]
             cmd.arg(&repo.path);
             cmd.status().unwrap_or_else(|mut err| inconclusive(&mut err));
@@ -184,7 +184,7 @@ impl ShallowBareRepository {
     pub fn fetch(&self, git: &Git, head: &CommitId) {
         let mut cmd = self.exec(git);
         cmd.args(["fetch", "--filter=blob:none", "--depth=1"]);
-        cmd.arg(self.origin.url.as_str());
+        cmd.arg(&self.origin.url);
         cmd.arg(&head.0);
         let exit = cmd.output()
             .unwrap_or_else(|mut err| inconclusive(&mut err));

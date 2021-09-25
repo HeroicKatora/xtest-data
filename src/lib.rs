@@ -43,10 +43,9 @@
 #![forbid(unsafe_code)]
 mod git;
 
-use std::{borrow::Cow, env, fs, path::Path, path::PathBuf};
+use std::{borrow::Cow, env, fs, ffi::OsString, path::Path, path::PathBuf};
 use serde_json::Value;
 use slotmap::{DefaultKey, SecondaryMap, SlotMap};
-use url::Url;
 
 /// A file that was registered from [`Vcs`].
 ///
@@ -122,7 +121,7 @@ struct Resources<'paths> {
 #[must_use = "This is only a builder. Call `build` to perform validation/fetch/etc."]
 #[derive(Debug)]
 pub struct Vcs<'paths> {
-    repository: Url,
+    repository: OsString,
     manifest: &'static str,
     /// Have we determined to be local or in a crate?.
     source: Source,
@@ -199,9 +198,8 @@ pub fn _setup(options: EnvOptions) -> Vcs<'static> {
     }
 
     // Now allow the override.
-    let repository = env::var("CARGO_XTEST_DATA_REPOSITORY_ORIGIN")
-        .ok()
-        .unwrap_or(String::from(repository));
+    let repository = env::var_os("CARGO_XTEST_DATA_REPOSITORY_ORIGIN")
+        .unwrap_or_else(|| OsString::from(repository));
 
     // Make sure this is an integration test, or at least we have the dir.
     // We don't want to block building over this (e.g. the crate itself here) but we _do_ want to
@@ -263,11 +261,6 @@ pub fn _setup(options: EnvOptions) -> Vcs<'static> {
     if repository.is_empty() {
         inconclusive(&mut "The repository must have a valid URL");
     }
-
-    // Always parse the repository address, ensuring we can access it.
-    let repository = repository
-        .parse()
-        .unwrap_or_else(|mut  err| inconclusive(&mut err));
 
     Vcs {
         repository,
@@ -341,9 +334,7 @@ impl<'lt> Vcs<'lt> {
                     .for_each(|item| item.root(&datapath));
             }
             Source::VcsFromManifest { commit_id, datadir, git, } => {
-                let origin = git::Origin {
-                    url: (self.repository)
-                };
+                let origin = git::Origin { url: self.repository };
 
                 let gitpath = datadir.join("xtest-data-git");
                 let datapath = datadir.join("xtest-data-tree");

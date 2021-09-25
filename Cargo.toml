@@ -14,9 +14,6 @@ features = ["alloc"]
 [dependencies.slotmap]
 version = "1"
 default-features = false
-[dependencies.url]
-version = "2"
-default-features = false
 [dependencies.which]
 version = "4.2"
 
