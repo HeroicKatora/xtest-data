@@ -14,13 +14,19 @@ fn main() -> Result<(), io::Error> {
     env::set_current_dir(repo)
         .expect("Not built in the xtest-data repository");
 
+    let args  = Args::default();
+
     let target = Target::from_current_dir()?;
     let filename = target.expected_crate_name();
 
-    let _ = Args::default();
+    let tmp = env::var_os("TMPDIR")
+        .map_or_else(|| Path::new("/tmp").to_owned(), PathBuf::from);
+    let extracted = tmp.join(target.expected_dir_name());
+
     Command::new(CARGO)
         .args(["package", "--no-verify"])
         .success()?;
+    fs::remove_dir_all(&extracted)?;
     // gunzip -c target/package/xtest-data-0.0.2.crate
     let crate_tar = Command::new("gunzip")
         .arg("-c")
@@ -29,12 +35,28 @@ fn main() -> Result<(), io::Error> {
         .stdout;
     // tar -C /tmp --extract --file -
     Command::new("tar")
-        .args(["-C", "/tmp", "--extract", "--file", "-"])
+        .arg("-C")
+        .arg(&tmp)
+        .args(["--extract", "--file", "-"])
         .input_output(&crate_tar)?;
+
+    if !args.test {
+        return Ok(())
+    }
+
+    // TMPDIR=/tmp CARGO_XTEST_DATA_FETCH=1 cargo test  -- --nocapture
+    Command::new(CARGO)
+        .current_dir(&extracted)
+        .args(["test", "--", "--nocapture"])
+        .env("TMPDIR", &tmp)
+        .env("CARGO_XTEST_DATA_FETCH", "yes")
+        .success()?;
+
     Ok(())
 }
 
 struct Args {
+    test: bool,
 }
 
 struct Target {
@@ -47,7 +69,8 @@ impl Default for Args {
         let mut args = env::args().skip(1);
         match args.next().as_ref().map(String::as_str) {
             None => panic!("No command given"),
-            Some("test") => Args {},
+            Some("test") => Args { test: true },
+            Some("prepare") => Args { test: false },
             _ => panic!("Invalid command given"),
         }
     }
@@ -75,6 +98,10 @@ impl Target {
 
     pub fn expected_crate_name(&self) -> PathBuf {
         format!("{}-{}.crate", &self.name, &self.version).into()
+    }
+
+    pub fn expected_dir_name(&self) -> PathBuf {
+        format!("{}-{}", &self.name, &self.version).into()
     }
 }
 
