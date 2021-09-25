@@ -74,11 +74,7 @@ enum Managed {
     Tree(PathBuf),
 }
 
-#[derive(Debug)]
-pub enum FsItem<'lt> {
-    File(&'lt mut PathBuf),
-    Tree(&'lt mut PathBuf),
-}
+pub type FsItem<'lt> = &'lt mut PathBuf;
 
 /// The product of `Vcs`, ensuring local file system accessible test resources.
 ///
@@ -331,7 +327,7 @@ impl<'lt> Vcs<'lt> {
                     });
                 self.resources.unmanaged
                     .into_iter()
-                    .for_each(|item| item.root(&datapath));
+                    .for_each(|item| set_root(&datapath, item));
             }
             Source::VcsFromManifest { commit_id, datadir, git, } => {
                 let origin = git::Origin { url: self.repository };
@@ -360,7 +356,7 @@ impl<'lt> Vcs<'lt> {
                     });
                 self.resources.unmanaged
                     .into_iter()
-                    .for_each(|item| item.root(&datapath));
+                    .for_each(|item| set_root(&datapath, item));
             }
         }
 
@@ -379,13 +375,13 @@ impl<'lt> Vcs<'lt> {
 impl Resources<'_> {
     pub fn as_paths(&self) -> impl Iterator<Item=&'_ Path> {
         let values = self.relative_files.values().map(Managed::as_path);
-        let unmanaged = self.unmanaged.iter().map(FsItem::as_path);
+        let unmanaged = self.unmanaged.iter().map(|x| Path::new(x));
         values.chain(unmanaged)
     }
 
     pub fn path_specs(&self) -> impl Iterator<Item=git::PathSpec<'_>> {
         let values = self.relative_files.values().map(Managed::as_path_spec);
-        let unmanaged = self.unmanaged.iter().map(FsItem::as_path_spec);
+        let unmanaged = self.unmanaged.iter().map(|x| git::PathSpec::Path(&**x));
         values.chain(unmanaged)
     }
 }
@@ -416,33 +412,8 @@ impl Managed {
     }
 }
 
-impl FsItem<'_> {
-    pub fn as_path(&self) -> &Path {
-        match self {
-            FsItem::Tree(path) | FsItem::File(path) => path,
-        }
-    }
-
-    fn as_path_spec(&self) -> git::PathSpec<'_> {
-        match self {
-            FsItem::File(path) => git::PathSpec::Path(path),
-            // FIXME: more accurate would be to have a spec for the glob `<dir>/**`.
-            FsItem::Tree(path) => git::PathSpec::Path(path),
-        }
-    }
-
-    fn root(self, root: &Path) {
-        let path = self.into_mut();
-        *path = root.join(&path);
-    }
-}
-
-impl<'lt> FsItem<'lt> {
-    fn into_mut(self) -> &'lt mut PathBuf {
-        match self {
-            FsItem::Tree(path) | FsItem::File(path) => path,
-        }
-    }
+fn set_root(path: &Path, dir: &mut PathBuf) {
+    *dir = path.join(&*dir)
 }
 
 #[cold]
