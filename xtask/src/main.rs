@@ -26,8 +26,10 @@ fn main() -> Result<(), LocatedError> {
     let mut private_tempdir = None;
     let tmp = env::var_os("TMPDIR")
         .map_or_else(|| {
-            let temp = TempDir::new_in("target", "xtest_data-")
+            let temp = TempDir::new_in("target", "xtest-data-")
                 .expect("to create a temporary directory");
+            fs::write(temp.path().join("Cargo.toml"), WORKSPACE_BOUNDARY)
+                .expect("to create a workspace boundary if the package has non");
             let temp = private_tempdir.insert(temp);
             temp.path().to_owned()
         }, PathBuf::from);
@@ -84,6 +86,16 @@ struct Target {
     name: String,
     version: String,
 }
+
+// A cargo.toml file that defines a workspace.
+// Otherwise, if we extract some crate into `target/xtest-data-??/ but the current crate is in a
+// workspace then we incorrectly detect the current directory as the crate's workspace—and fail
+// because it surely does not include its target directory as members. This is because the
+// _normalized_ Cargo.toml does not include workspace definitions.
+const WORKSPACE_BOUNDARY: &'static str = r#"
+[workspace]
+members = ["*"]
+"#;
 
 impl Args {
     fn from_env() -> Result<Self, io::Error> {
