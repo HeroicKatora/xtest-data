@@ -7,14 +7,12 @@ use toml::Value;
 // Use the same host-binary as is building us.
 const CARGO: &'static str = env!("CARGO");
 
-fn main() -> Result<(), io::Error> {
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("Not built in the xtest-data repository");
+fn main() -> Result<(), LocatedError> {
+    let args  = Args::from_env()
+        .map_err(anchor_error())?;
+    let repo = &args.repository;
     env::set_current_dir(repo)
-        .expect("Not built in the xtest-data repository");
-
-    let args  = Args::default();
+        .map_err(anchor_error())?;
 
     let target = Target::from_current_dir()?;
     let filename = target.expected_crate_name();
@@ -25,20 +23,25 @@ fn main() -> Result<(), io::Error> {
 
     Command::new(CARGO)
         .args(["package", "--no-verify"])
-        .success()?;
-    fs::remove_dir_all(&extracted)?;
+        .success()
+        .map_err(anchor_error())?;
+    // Try to remove it but ignore failure.
+    let _ = fs::remove_dir_all(&extracted)
+        .map_err(anchor_error());
     // gunzip -c target/package/xtest-data-0.0.2.crate
     let crate_tar = Command::new("gunzip")
         .arg("-c")
         .arg(Path::new("target/package").join(filename))
-        .output()?
+        .output()
+        .map_err(anchor_error())?
         .stdout;
     // tar -C /tmp --extract --file -
     Command::new("tar")
         .arg("-C")
         .arg(&tmp)
         .args(["--extract", "--file", "-"])
-        .input_output(&crate_tar)?;
+        .input_output(&crate_tar)
+        .map_err(anchor_error())?;
 
     if !args.test {
         return Ok(())
@@ -51,13 +54,21 @@ fn main() -> Result<(), io::Error> {
         .env("TMPDIR", &tmp)
         .env("CARGO_XTEST_DATA_FETCH", "yes")
         .env("CARGO_XTEST_DATA_REPOSITORY_ORIGIN", format!("file://{}", repo.display()))
-        .success()?;
+        .success()
+        .map_err(anchor_error())?;
 
     Ok(())
 }
 
+#[derive(Debug)]
+struct LocatedError {
+    location: &'static std::panic::Location<'static>,
+    inner: io::Error,
+}
+
 struct Args {
     test: bool,
+    repository: PathBuf,
 }
 
 struct Target {
@@ -65,34 +76,70 @@ struct Target {
     version: String,
 }
 
-impl Default for Args {
-    fn default() -> Self {
+impl Args {
+    fn from_env() -> Result<Self, io::Error> {
         let mut args = env::args().skip(1);
-        match args.next().as_ref().map(String::as_str) {
-            None => panic!("No command given"),
-            Some("test") => Args { test: true },
-            Some("prepare") => Args { test: false },
-            _ => panic!("Invalid command given"),
-        }
+        let test;
+        let mut repository = None;
+
+        loop {
+            match args.next().as_ref().map(String::as_str) {
+                None => panic!("No command given"),
+                Some("--path") => {
+                    let argument = args.next()
+                        .expect("Missing argument to `--path`");
+                    let canonical = Path::new(&argument).canonicalize()?;
+                    repository = Some(canonical);
+                }
+                Some("test") => {
+                    test = true;
+                    break;
+                },
+                Some("prepare") => {
+                    test = false;
+                    break;
+                }
+                _ => panic!("Invalid command given"),
+            }
+        };
+
+        let default_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .ok_or_else(undiagnosed_io_error())?;
+
+        let repository = repository
+            .map_or_else(|| default_path.to_owned(), PathBuf::from);
+
+        Ok(Args {
+            test,
+            repository,
+        })
     }
 }
 
 impl Target {
-    pub fn from_current_dir() -> Result<Self, io::Error> {
-        let toml = fs::read("Cargo.toml")?;
+    pub fn from_current_dir() -> Result<Self, LocatedError> {
+        let toml = fs::read("Cargo.toml")
+            .map_err(anchor_error())?;
         let toml: Value = toml::de::from_slice(&toml)
-            .map_err(as_io_error)?;
+            .map_err(as_io_error)
+            .map_err(anchor_error())?;
         let package = toml.get("package")
-            .ok_or_else(undiagnosed_io_error)?;
+            .ok_or_else(undiagnosed_io_error())
+            .map_err(anchor_error())?;
         let name = package.get("name")
-            .ok_or_else(undiagnosed_io_error)?
+            .ok_or_else(undiagnosed_io_error())
+            .map_err(anchor_error())?
             .as_str()
-            .ok_or_else(undiagnosed_io_error)?
+            .ok_or_else(undiagnosed_io_error())
+            .map_err(anchor_error())?
             .to_owned();
         let version = package.get("version")
-            .ok_or_else(undiagnosed_io_error)?
+            .ok_or_else(undiagnosed_io_error())
+            .map_err(anchor_error())?
             .as_str()
-            .ok_or_else(undiagnosed_io_error)?
+            .ok_or_else(undiagnosed_io_error())
+            .map_err(anchor_error())?
             .to_owned();
         Ok(Target { name, version })
     }
@@ -160,12 +207,23 @@ impl ParseOutput for Output {
     }
 }
 
-fn undiagnosed_io_error() -> io::Error {
-    io::ErrorKind::Other.into()
+#[track_caller]
+fn undiagnosed_io_error() -> impl FnMut() -> io::Error {
+    let location = std::panic::Location::caller();
+    move || io::Error::new(io::ErrorKind::Other, location.to_string())
 }
 
 fn as_io_error<T>(err: T) -> io::Error
     where T: Into<Box<dyn std::error::Error + Send + Sync>>
 {
     io::Error::new(io::ErrorKind::Other, err)
+}
+
+#[track_caller]
+fn anchor_error() -> impl FnMut(io::Error) -> LocatedError {
+    let location = std::panic::Location::caller();
+    move |inner| LocatedError {
+        location,
+        inner,
+    }
 }
