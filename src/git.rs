@@ -86,8 +86,6 @@ impl Git {
             path,
         };
 
-        eprintln!("Cloning {} into {}", repo.origin.url.as_str(), repo.path.display());
-
         if !repo.path.exists() {
             let mut cmd = repo.exec(self);
             // clone [options…]
@@ -236,7 +234,6 @@ impl ShallowBareRepository {
                 use std::io::Write;
                 // > This includes interpreting pathnames that begin with a double quote (") as C-style quoted strings.
                 // Since there is no NUL separation (yet?) we use this.
-                eprintln!("{}", simple);
                 writeln!(stdin, "{}", simple).unwrap_or_else(|mut err| inconclusive(&mut err));
             }
             running.stdin = None;
@@ -255,7 +252,6 @@ impl ShallowBareRepository {
 
         let mut cmd = self.exec(git);
         cmd.arg("--work-tree");
-        eprintln!("Checkout to worktree {}", worktree.display());
         cmd.arg(worktree);
         cmd.arg("checkout");
         cmd.arg("--force");
