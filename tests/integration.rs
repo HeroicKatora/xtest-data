@@ -13,9 +13,7 @@ fn integration_test_ourselves() {
 #[test]
 fn simple_integration() {
     let mut path = PathBuf::from("tests/data.zip");
-    xtest_data::setup!()
-        .filter([&mut path])
-        .build();
+    xtest_data::setup!().rewrite([&mut path]).build();
     // 'Magically' changed.
     assert!(path.exists(), "{}", path.display());
 }

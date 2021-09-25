@@ -8,15 +8,14 @@
 //! crate.
 //!
 //! ```rust
-//! let mut vcs = xtest_data::setup!();
-//! // or any other file you want to use.
-//! let datazip = vcs.file("tests/data.zip");
-//! let testdata = vcs.build();
+//! use std::path::PathBuf;
 //!
-//! // access its path via the xtest-data object, not directly
-//! let path = testdata.file(&datazip);
+//! // or any other file you want to use.
+//! let mut datazip = PathBuf::from("tests/data.zip");
+//! xtest_data::setup!().rewrite([&mut datazip]).build();
+//!
 //! // … and the crate works its magic to make this succeed.
-//! assert!(path.exists(), "{}", path.display());
+//! assert!(datazip.exists(), "{}", datazip.display());
 //! ```
 //!
 //! # For packagers
@@ -74,7 +73,7 @@ enum Managed {
     Tree(PathBuf),
 }
 
-pub type FsItem<'lt> = &'lt mut PathBuf;
+type FsItem<'lt> = &'lt mut PathBuf;
 
 /// The product of `Vcs`, ensuring local file system accessible test resources.
 ///
@@ -106,6 +105,16 @@ enum Source {
 struct Resources<'paths> {
     relative_files: SlotMap<DefaultKey, Managed>,
     /// Resources where we do 'simple' path replacement in a filter style.
+    ///
+    /// Note on ergonomics: We MAY take several different kinds of paths in the future to allow the
+    /// glob-style usage (`tests/samples/*.png`) to be efficiently executed. However, we should NOT
+    /// change the public API for this. We may well do some wrapping internally but the calls
+    /// should map to exactly one variant of any such item; and the enum variant should not be
+    /// directly exposed.
+    ///
+    /// This is based on the needs to perform more imports and additional calls to wrap locals in
+    /// those items. Basically, adding the crate should not be much more complex than making all
+    /// paths a variable and then throwing a `xtest_data::setup!()` on top.
     unmanaged: Vec<FsItem<'paths>>,
 }
 
@@ -275,7 +284,7 @@ impl<'lt> Vcs<'lt> {
     /// working dir and you can't expect any other files to be present).
     ///
     /// Both of those actions will happen when you call [`build()`].
-    pub fn filter(mut self, iter: impl IntoIterator<Item=FsItem<'lt>>) -> Self {
+    pub fn rewrite(mut self, iter: impl IntoIterator<Item=&'lt mut PathBuf>) -> Self {
         self.resources.unmanaged.extend(iter);
         self
     }
