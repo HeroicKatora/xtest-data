@@ -19,3 +19,6 @@ version = "2"
 default-features = false
 [dependencies.which]
 version = "4.2"
+
+[workspace]
+members = [".", "xtask"]
