@@ -50,7 +50,7 @@ fn main() -> Result<(), LocatedError> {
     // TMPDIR=/tmp CARGO_XTEST_DATA_FETCH=1 cargo test  -- --nocapture
     Command::new(CARGO)
         .current_dir(&extracted)
-        .args(["test", "--", "--nocapture", "--test-threads", "1"])
+        .args(["test", "--no-fail-fast", "--", "--nocapture", "--test-threads", "1"])
         .env("TMPDIR", &tmp)
         .env("CARGO_XTEST_DATA_FETCH", "yes")
         .env("CARGO_XTEST_DATA_REPOSITORY_ORIGIN", format!("file://{}", repo.display()))
