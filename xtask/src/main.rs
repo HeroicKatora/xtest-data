@@ -50,6 +50,7 @@ fn main() -> Result<(), io::Error> {
         .args(["test", "--", "--nocapture"])
         .env("TMPDIR", &tmp)
         .env("CARGO_XTEST_DATA_FETCH", "yes")
+        .env("CARGO_XTEST_DATA_REPOSITORY_ORIGIN", format!("file://{}", repo.display()))
         .success()?;
 
     Ok(())

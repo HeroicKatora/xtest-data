@@ -42,7 +42,7 @@
 //! ¹We need a place to store a shallow clone of the crate's source repository.
 mod git;
 
-use std::{borrow::Cow, fs, path::Path, path::PathBuf};
+use std::{borrow::Cow, env, fs, path::Path, path::PathBuf};
 use serde_json::Value;
 use slotmap::{DefaultKey, SecondaryMap, SlotMap};
 use url::Url;
@@ -193,6 +193,12 @@ pub fn _setup(options: EnvOptions) -> Vcs<'static> {
         manifest_dir: manifest,
         target_tmpdir: tmpdir,
     } = options;
+
+    // Allow the override.
+    let repository = env::var("CARGO_XTEST_DATA_REPOSITORY_ORIGIN")
+        .ok()
+        .unwrap_or(String::from(repository));
+
     // Make sure this is an integration test, or at least we have the dir.
     // We don't want to block building over this (e.g. the crate itself here) but we _do_ want to
     // restrict running this `setup` function
@@ -325,7 +331,7 @@ impl<'lt> Vcs<'lt> {
             }
             Source::VcsFromManifest { commit_id, datadir, git, } => {
                 let origin = git::Origin {
-                    url: self.repository
+                    url: (self.repository)
                 };
 
                 let gitpath = datadir.join("xtest-data-git");

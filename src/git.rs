@@ -87,6 +87,7 @@ impl Git {
         };
 
         eprintln!("Cloning {} into {}", repo.origin.url.as_str(), repo.path.display());
+
         if !repo.path.exists() {
             let mut cmd = repo.exec(self);
             // clone [options…]
