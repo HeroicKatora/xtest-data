@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        rust: ["1.48", stable]
+        rust: [stable]
     steps:
     - uses: actions/checkout@v2
     - name: Install chosen toolchain nightly
