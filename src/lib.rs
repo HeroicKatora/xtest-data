@@ -46,31 +46,20 @@ use std::{borrow::Cow, env, fs, ffi::OsString, path::Path, path::PathBuf};
 use serde_json::Value;
 use slotmap::{DefaultKey, SecondaryMap, SlotMap};
 
-/// A file that was registered from [`Setup`].
+/// A file or tree that was registered from [`Setup`].
 ///
 /// This is a key into [`FsData`]. You can retrieve the local path using [`FsData::file()`]. The
 /// returned path is either the local path on disk, when you are currently developing under a local
 /// checkout of the version control system, or the path into which the file has been checked out.
 #[derive(Debug)]
-pub struct File {
-    key: DefaultKey,
-}
-
-/// A key into [`FsData`] that was previously registered from [`Setup`].
-///
-/// This is a key into [`FsData`]. You can retrieve the local path using [`FsData::tree()`]. The
-/// returned path is either the local path on disk, when you are currently developing under a local
-/// checkout of the version control system, or the path into which the whole tree has been checked
-/// out.
-#[derive(Debug)]
-pub struct Tree {
+pub struct Files {
     key: DefaultKey,
 }
 
 #[derive(Debug)]
 enum Managed {
-    FilePath(PathBuf),
-    Tree(PathBuf),
+    // TODO: have a spec for the glob `<dir>/**.ext`?
+    Files(PathBuf),
 }
 
 type FsItem<'lt> = &'lt mut PathBuf;
@@ -306,33 +295,48 @@ impl<'lt> Setup<'lt> {
     /// working dir and you can't expect any other files to be present).
     ///
     /// Those actions will happen when you call [`Setup::build()`].
+    /// 
+    /// # Example
+    ///
+    /// ```
+    /// use std::path::PathBuf;
+    /// use xtest_data::setup;
+    ///
+    /// let mut path = PathBuf::from("tests/data.zip");
+    /// setup!().rewrite([&mut path]).build();
+    ///
+    /// assert!(path.exists(), "{}", path.display());
+    /// ```
     pub fn rewrite(mut self, iter: impl IntoIterator<Item=&'lt mut PathBuf>) -> Self {
         self.resources.unmanaged.extend(iter);
         self
     }
 
 
-    /// Register the path of a file.
+    /// Register the path of a file or a tree of files.
     ///
-    /// The return value is a key that can later be used in [`FsData`].
-    pub fn file(&mut self, path: impl AsRef<Path>) -> File {
+    /// The return value is a key that can later be used in [`FsData`]. All the files under this
+    /// location will be checked out when `Setup::build()` is called in a crate-build.
+    /// 
+    /// # Example
+    ///
+    /// ```
+    /// let mut vcs = xtest_data::setup!();
+    /// let datazip = vcs.add("tests/data.zip");
+    /// let testdata = vcs.build();
+    ///
+    /// let path = testdata.path(&datazip);
+    /// assert!(path.exists(), "{}", path.display());
+    /// ```
+
+    pub fn add(&mut self, path: impl AsRef<Path>) -> Files {
         fn path_impl(resources: &mut Resources, path: &Path) -> DefaultKey {
-            let item = Managed::FilePath(path.to_owned());
+            let item = Managed::Files(path.to_owned());
             resources.relative_files.insert(item)
         }
 
         let key = path_impl(&mut self.resources, path.as_ref());
-        File { key }
-    }
-
-    pub fn tree(&mut self, path: impl AsRef<Path>) -> Tree {
-        fn path_impl(resources: &mut Resources, path: &Path) -> DefaultKey {
-            let item = Managed::Tree(path.to_owned());
-            resources.relative_files.insert(item)
-        }
-
-        let key = path_impl(&mut self.resources, path.as_ref());
-        Tree { key }
+        Files { key }
     }
 
     /// Run the final validation and perform rewrites.
@@ -421,27 +425,22 @@ impl Resources<'_> {
 }
 
 impl FsData {
-    pub fn file(&self, file: &File) -> &Path {
+    /// Retrieve the rewritten path of a file or tree of files.
+    pub fn path(&self, file: &Files) -> &Path {
         self.map.get(file.key).unwrap().as_path()
-    }
-
-    pub fn tree(&self, tree: &Tree) -> &Path {
-        self.map.get(tree.key).unwrap().as_path()
     }
 }
 
 impl Managed {
     pub fn as_path(&self) -> &Path {
         match self {
-            Managed::Tree(path) | Managed::FilePath(path) => path,
+            Managed::Files(path) => path,
         }
     }
 
     fn as_path_spec(&self) -> git::PathSpec<'_> {
         match self {
-            Managed::FilePath(path) => git::PathSpec::Path(path),
-            // FIXME: more accurate would be to have a spec for the glob `<dir>/**`.
-            Managed::Tree(path) => git::PathSpec::Path(path),
+            Managed::Files(path) => git::PathSpec::Path(path),
         }
     }
 }
