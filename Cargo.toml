@@ -9,6 +9,9 @@ exclude = ["tests/data.zip"]
 
 [dependencies.tinyjson]
 version = "2"
+[dependencies.fslock]
+version = "0.1.8"
+features = ["multilock"]
 [dependencies.which]
 version = "4.2"
 

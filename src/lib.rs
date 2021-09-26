@@ -384,7 +384,8 @@ impl<'lt> Setup<'lt> {
                 let origin = git::Origin { url: self.repository };
 
                 let gitpath = datadir.join("xtest-data-git");
-                let datapath = datadir.join("xtest-data-tree");
+                let datapath = unique_dir(&datadir, "xtest-data-tree")
+                    .unwrap_or_else(|mut err| inconclusive(&mut err));
 
                 git.consent_to_use(
                     &gitpath,
@@ -394,7 +395,6 @@ impl<'lt> Setup<'lt> {
                     &mut self.resources.as_paths(),
                     &mut self.resources.path_specs());
 
-                fs::create_dir_all(&datapath).unwrap_or_else(|mut err| inconclusive(&mut err));
                 let shallow = git.shallow_clone(gitpath, origin);
 
                 shallow.fetch(&git, &commit_id);
@@ -460,6 +460,11 @@ impl Managed {
 
 fn set_root(path: &Path, dir: &mut PathBuf) {
     *dir = path.join(&*dir)
+}
+
+// We do not use tempdir. This should already be done by our environment (e.g. cargo).
+fn unique_dir(base: &Path, prefix: &str) -> Result<PathBuf, std::io::Error> {
+    todo!()
 }
 
 #[cold]

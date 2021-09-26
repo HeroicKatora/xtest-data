@@ -1,6 +1,6 @@
 use std::path::{PathBuf, Path};
 use std::process::{Command, Stdio};
-use std::ffi::OsString;
+use std::ffi::{OsString, OsStr};
 
 use crate::inconclusive;
 
@@ -19,6 +19,10 @@ pub(crate) struct ShallowBareRepository {
 /// The repository containing the manifest of the crate to integration test.
 pub(crate) struct CrateDir {
     path: PathBuf,
+}
+
+pub(crate) struct FileWaitLock {
+    _lock: fslock::LockFile,
 }
 
 pub(crate) struct Origin {
@@ -86,6 +90,9 @@ impl Git {
             path,
         };
 
+        let _lock = FileWaitLock::for_git_dir(&repo.path);
+
+        // TODO: take an fslock.
         if !repo.path.exists() {
             let mut cmd = repo.exec(self);
             // clone [options…]
@@ -182,6 +189,8 @@ impl ShallowBareRepository {
     }
 
     pub fn fetch(&self, git: &Git, head: &CommitId) {
+        let _lock = FileWaitLock::for_git_dir(&self.path);
+
         let mut cmd = self.exec(git);
         cmd.args(["fetch", "--filter=blob:none", "--depth=1"]);
         cmd.arg(&self.origin.url);
@@ -218,6 +227,19 @@ impl ShallowBareRepository {
                 }
             })
             .collect();
+
+        let _lock = FileWaitLock::for_git_dir(&self.path);
+
+        let mut cmd = self.exec(git);
+        cmd.args(["worktree", "add", "--no-checkout"]);
+        cmd.arg(worktree);
+        cmd.arg(head);
+        let exit = cmd.output()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+        if !exit.status.success() {
+            eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
+            inconclusive(&mut "Git operation was not successful");
+        }
 
         // First setup sparse-checkout
         // Note that this is in beta and not supported, so let's fallback if necessary.
@@ -300,6 +322,21 @@ impl ShallowBareRepository {
     }
 }
 
+impl FileWaitLock {
+    pub fn for_git_dir(path: &Path) -> Self {
+        let fslock_patch = path
+            .parent()
+            .expect("Clone directory should not be root")
+            .join("xtest-data.lock");
+
+        let mut _lock = fslock::LockFile::open_excl(&fslock_patch)
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+        _lock.lock().unwrap_or_else(|mut err| inconclusive(&mut err));
+
+        FileWaitLock { _lock }
+    }
+}
+
 impl PathSpec<'_> {
     /// For git sparse checkout.
     pub fn as_encompassing_path(&self) -> Option<&Path> {
@@ -309,6 +346,13 @@ impl PathSpec<'_> {
         }
     }
 }
+
+impl std::convert::AsRef<OsStr> for CommitId {
+    fn as_ref(&self) -> &OsStr {
+        self.0.as_ref()
+    }
+}
+
 
 impl core::fmt::Display for PathSpec<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
