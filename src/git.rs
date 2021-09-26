@@ -22,7 +22,7 @@ pub(crate) struct CrateDir {
 }
 
 pub(crate) struct FileWaitLock {
-    _lock: fslock::LockFile,
+    lock: std::fs::File,
 }
 
 pub(crate) struct Origin {
@@ -244,7 +244,6 @@ impl ShallowBareRepository {
             })
             .collect();
 
-        let _lock = FileWaitLock::for_git_dir(&self.path);
 
         let mut cmd = self.exec(git);
         cmd.args(["worktree", "add", "--no-checkout"]);
@@ -345,18 +344,29 @@ impl ShallowBareRepository {
 
 impl FileWaitLock {
     pub fn for_git_dir(path: &Path) -> Self {
-        let fslock_patch = path
+        use fs2::FileExt;
+        let fslock_path = path
             .parent()
             .expect("Clone directory should not be root")
             .join("xtest-data.lock");
 
-        let mut _lock = fslock::LockFile::open_excl(&fslock_patch)
+        let lock = std::fs::File::create(&fslock_path)
             .unwrap_or_else(|mut err| inconclusive(&mut err));
-        _lock
-            .lock()
+        lock
+            .lock_exclusive()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
 
-        FileWaitLock { _lock }
+        FileWaitLock { lock }
+    }
+}
+
+impl Drop for FileWaitLock {
+    fn drop(&mut self) {
+        use fs2::FileExt;
+        if let Err(_) = self.lock.unlock() {
+            // Otherwise we'd block indefinitely in this process?
+            std::process::abort();
+        }
     }
 }
 
