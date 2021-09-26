@@ -48,7 +48,7 @@ use slotmap::{DefaultKey, SecondaryMap, SlotMap};
 
 /// A file or tree that was registered from [`Setup`].
 ///
-/// This is a key into [`FsData`]. You can retrieve the local path using [`FsData::file()`]. The
+/// This is a key into [`FsData`]. You can retrieve the local path using [`FsData::path()`]. The
 /// returned path is either the local path on disk, when you are currently developing under a local
 /// checkout of the version control system, or the path into which the file has been checked out.
 #[derive(Debug)]
@@ -67,7 +67,7 @@ type FsItem<'lt> = &'lt mut PathBuf;
 /// The product of `Setup`, ensuring local file system accessible test resources.
 ///
 /// This object is used to retrieve the local paths of resources that have been registered with the
-/// methods [`Setup::file()`] and [`Setup::tree()`] before.
+/// method [`Setup::add()`].
 #[derive(Debug)]
 pub struct FsData {
     /// Map all configured items to their paths.
@@ -115,7 +115,7 @@ struct Resources<'paths> {
 /// This is a builder and after configuration, its [`Setup::build()`] method should be called. Note
 /// the lifetime on this struct. This is either the lifetime of paths borrowed from the caller,
 /// which it will rewrite, or it can be `'static` when it owns all of the paths. The latter case
-/// requires them to be registered with [`Setup::file()`] and [`Setup::tree()`] instead.
+/// requires them to be registered with [`Setup::add()`].
 ///
 /// On a VCS copy of the surrounding package this will simply collect and validate the information,
 /// canonicalizing paths to be interpreted from the Manifest in the process.
@@ -341,8 +341,8 @@ impl<'lt> Setup<'lt> {
 
     /// Run the final validation and perform rewrites.
     ///
-    /// Returns the frozen dictionary of file mappings that had been registered as [`Self::file()`]
-    /// or [`Self::tree()`]. This allows retrieving the final data paths for those items.
+    /// Returns the frozen dictionary of file mappings that had been registered with
+    /// [`Setup::add()`]. This allows retrieving the final data paths for those items.
     ///
     /// ## Panics
     ///

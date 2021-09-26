@@ -17,7 +17,7 @@ accessible through the current VCS state.
 ```rust
 let mut path = PathBuf::from("tests/data.zip");
 xtest_data::setup!()
-    .filter([FsItem::File(&mut path)])
+    .rewrite([&mut path])
     .build();
 // 'Magically' changed.
 assert!(path.exists(), "{}", path.display());
