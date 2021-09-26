@@ -1,6 +1,32 @@
 Implements fetching test data in distributed crates.
 
-## How to use
+# What this library is
+
+This library addresses the problem that integration test suites and
+documentation tests can not be ran from the published `.crate` archive alone,
+if they depend on auxiliary data files that should not be shipped to downstream
+packages and end users.
+
+## Motivation
+
+As a developer of a library, you will write some integration with the goal of
+ensuring correct functionality of your code. Typically, these will be executed
+in a CI pipeline before release. However, what if someone else—e.g. an Open
+Source OS distribution—wants to repackage your code? In some cases they might
+need to perform simple, small modifications: rewrite dependencies, apply
+compilation options like hardening flags, etc. After those modifications it's
+unclear if the end product still conforms to its own expectations. Thus will
+want to run the integration test suite again. That's where the library comes in.
+It should ensure that:
+
+* It is unobtrusive in that it does not require modification to the code that
+  is used when included as a dependency.
+* Tests should be reproducible from the packaged `.crate`, and an author can
+  check this property locally and during pre-release checks.
+* Auxiliary data files required for tests are referenced unambiguously.
+* It does not make unmodifiable assumptions about the source of test data.
+
+## How to apply
 
 Integrate this package as a dev-dependency into your tests. This allows
 utilizing the library component to provide a compelling experience for testing
@@ -8,11 +34,6 @@ distributed packages without the need to distribute the test data itself. The
 main goal of this package is: if the tests run in your CI pipeline where your
 complete repository is available, then they should also work with the package
 distribution.
-
-It's expected that you also use this package to _register_ test data folder and
-then also to _access_ the test data. The latter step isn't required but offers a
-validation layer. In particular, the library will assert that the files are
-accessible through the current VCS state.
 
 ```rust
 let mut path = PathBuf::from("tests/data.zip");
@@ -23,11 +44,48 @@ xtest_data::setup!()
 assert!(path.exists(), "{}", path.display());
 ```
 
-Note the calls above are infallible—they will panic when something is missing
-since this indicates absent data. The reasoning is that this indicates a faulty
-setup, not something the test should handle.
+Note the calls above are typed as infallible but they are not total—they will
+panic when something is missing since this indicates absent data. The reasoning
+is that this indicates a faulty setup, not something the test should handle.
+The expectation of the library is that you access all data through this library
+instead of as a direct path.
 
-## Customization points
+# Details
+
+## Usage for crate authors
+
+For the basic usage, see the above section [How to apply](#How-to-apply). For
+more advanced API usage consult [the documentation](https://docs.rs/xtest-data/).
+The complete interface is not much more complex than the simple version above.
+
+There is one additional detail if you want to check that your crate
+successfully passes the tests on a crate distribution. For this you can
+repurpose the `xtask` of this crate:
+
+```bash
+cd path/to/xtest-data
+cargo run -p xtask -- --path to/your/crate test
+```
+
+Hint: if you add the source repository of `xtest-data` as a submodule and
+modify your workspace to include the `xtask` folder then you can always execute
+the `xtask` from your own crate.
+
+The xtask will:
+1. Run `cargo package` to create the `.crate` archive. Note that this requires
+   the sources selected for the crate to be unmodified.
+2. Decompress and unpack this archive into a temporary directory.
+3. Compile the package with `xtest-data` overrides for local development (see
+   next section). In particular: `CARGO_XTEST_DATA_REPOSITORY_ORIGIN` will
+   point to the selected path as a `file://` url; `CARGO_XTEST_DATA_TMPDIR`
+   will be set to a temporary directory create within the `target` directory;
+   `CARGO_TARGET_DIR` will also point to the target directory.
+
+This keeps the `rustc` cached data around while otherwise simulating a fresh
+distribution compilation.
+
+
+## Customization points for packagers
 
 In all settings, the `xtest_data` will inspect the following:
 * The `Cargo.toml` file located in the `CARGO_MANIFEST_DIR` will be read,
@@ -61,6 +119,24 @@ won't do anything but validate the information, debug print what we _plan_ to
 fetch—and then instantly panic. However, if the environment variable
 `CARGO_XTEST_DATA_FETCH` is set to `yes`, `true` or `1` then we will try
 to download and checkout requested files to the relative location.
+
+## Fulfillment of goals
+
+* The package is a pure dev-dependency and there is focus on introducing a
+  small amount of dependencies. (Any patches to minimize this further are
+  welcome. We might add a toggle to disable locks and its dependencies if
+  non-parallel test execution is good enough?)
+* The `xtask` tool can be used for local development and CI (we use it in our
+  own pipeline for example). It's not strongly linked to the implementation,
+  just the public interface, so it is possible to replace it with your own
+  logic.
+* Auxiliary files are referenced by the commit object ID of the distributed
+  crate, which implies a particular tree-ish from which they are retrieved.
+  This is equivalent to descending a Merkle tree which lends itself to
+  efficient signatures etc.
+* It is possible to overwrite the source repository as long as it provides a
+  git compatible server. For example, you might pre-clone the source commit and
+  provide the data via a local `file://` repository.
 
 ## Known problems
 
