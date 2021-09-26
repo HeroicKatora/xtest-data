@@ -1,0 +1,35 @@
+name: Rust CI
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust: ["1.48", stable]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install chosen toolchain nightly
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: ${{ matrix.rust }}
+          override: true
+    - name: test
+      run: cargo run -p xtask -- test
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+        components: rustfmt
+    - name: Run rustfmt check
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: -- --check
