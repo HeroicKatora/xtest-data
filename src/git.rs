@@ -244,7 +244,6 @@ impl ShallowBareRepository {
             })
             .collect();
 
-
         let mut cmd = self.exec(git);
         cmd.args(["worktree", "add", "--no-checkout"]);
         cmd.arg(worktree);
@@ -350,10 +349,9 @@ impl FileWaitLock {
             .expect("Clone directory should not be root")
             .join("xtest-data.lock");
 
-        let lock = std::fs::File::create(&fslock_path)
-            .unwrap_or_else(|mut err| inconclusive(&mut err));
-        lock
-            .lock_exclusive()
+        let lock =
+            std::fs::File::create(&fslock_path).unwrap_or_else(|mut err| inconclusive(&mut err));
+        lock.lock_exclusive()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
 
         FileWaitLock { lock }
