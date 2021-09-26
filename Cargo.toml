@@ -15,6 +15,7 @@ features = ["multilock"]
 [dependencies.which]
 version = "4.2"
 [dependencies.nanorand]
+version = "0.6.1"
 default-features = false
 features = ["std", "tls", "wyrand"]
 

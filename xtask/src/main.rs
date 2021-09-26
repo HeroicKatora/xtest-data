@@ -63,6 +63,7 @@ fn main() -> Result<(), LocatedError> {
         .current_dir(&extracted)
         .args(["test", "--no-fail-fast", "--", "--nocapture"])
         .env("TMPDIR", &tmp)
+        .env("CARGO_TARGET_DIR", repo.join("target"))
         .env("CARGO_XTEST_DATA_FETCH", "yes")
         .env("CARGO_XTEST_DATA_REPOSITORY_ORIGIN", format!("file://{}", repo.display()))
         .success()
