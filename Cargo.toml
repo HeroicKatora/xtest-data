@@ -15,6 +15,11 @@ features = ["multilock"]
 [dependencies.which]
 version = "4.2"
 
+[dependencies.nanorand]
+default-features = false
+# Maybe we'll not use tls in the future?
+features = ["std", "tls", "wyrand"]
+
 [workspace]
 members = [".", "xtask"]
 exclude = ["target/**"]

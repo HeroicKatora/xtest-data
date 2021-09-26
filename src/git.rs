@@ -1,6 +1,6 @@
 use std::path::{PathBuf, Path};
 use std::process::{Command, Stdio};
-use std::ffi::{OsString, OsStr};
+use std::ffi::{OsStr, OsString};
 
 use crate::inconclusive;
 
@@ -194,7 +194,7 @@ impl ShallowBareRepository {
         let mut cmd = self.exec(git);
         cmd.args(["fetch", "--filter=blob:none", "--depth=1"]);
         cmd.arg(&self.origin.url);
-        cmd.arg(&head.0);
+        cmd.arg(head);
         let exit = cmd.output()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
         if !exit.status.success() {
@@ -352,7 +352,6 @@ impl std::convert::AsRef<OsStr> for CommitId {
         self.0.as_ref()
     }
 }
-
 
 impl core::fmt::Display for PathSpec<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {

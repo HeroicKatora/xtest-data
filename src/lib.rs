@@ -42,7 +42,7 @@
 #![forbid(unsafe_code)]
 mod git;
 
-use std::{borrow::Cow, env, fs, ffi::OsString, path::Path, path::PathBuf};
+use std::{borrow::Cow, env, fs, ffi::OsString, io, path::Path, path::PathBuf};
 use tinyjson::JsonValue;
 
 /// A file or tree that was registered from [`Setup`].
@@ -464,7 +464,39 @@ fn set_root(path: &Path, dir: &mut PathBuf) {
 
 // We do not use tempdir. This should already be done by our environment (e.g. cargo).
 fn unique_dir(base: &Path, prefix: &str) -> Result<PathBuf, std::io::Error> {
-    todo!()
+    let mut rng = nanorand::tls::tls_rng();
+    assert!(matches!(
+        Path::new(prefix).components().nth(0),
+        Some(std::path::Component::Normal(_))
+    ));
+    assert!(Path::new(prefix).components().nth(1).is_none());
+
+    let mut buffer = prefix.to_string();
+    let mut generate_name = move || -> PathBuf {
+        use nanorand::Rng;
+        const TABLE: &str = "0123456789abcdef";
+        let num: [u8; 8] = rng.rand();
+
+        buffer.clear();
+        buffer.push_str(prefix);
+
+        for byte in num {
+            let (low, hi) = (usize::from(byte & 0xf), usize::from((byte >> 4) & 0xf));
+            buffer.push_str(&TABLE[low..low+1]);
+            buffer.push_str(&TABLE[hi..hi+1]);
+        }
+
+        base.join(&buffer)
+    };
+
+    loop {
+        let path = generate_name();
+        match fs::create_dir(&path) {
+            Ok(_) => return Ok(path),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(other) => return Err(other),
+        }
+    }
 }
 
 #[cold]
