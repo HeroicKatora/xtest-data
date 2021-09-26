@@ -44,7 +44,6 @@ mod git;
 
 use std::{borrow::Cow, env, fs, ffi::OsString, path::Path, path::PathBuf};
 use serde_json::Value;
-use slotmap::{DefaultKey, SecondaryMap, SlotMap};
 
 /// A file or tree that was registered from [`Setup`].
 ///
@@ -53,7 +52,7 @@ use slotmap::{DefaultKey, SecondaryMap, SlotMap};
 /// checkout of the version control system, or the path into which the file has been checked out.
 #[derive(Debug)]
 pub struct Files {
-    key: DefaultKey,
+    key: usize,
 }
 
 #[derive(Debug)]
@@ -72,7 +71,7 @@ type FsItem<'lt> = &'lt mut PathBuf;
 pub struct FsData {
     /// Map all configured items to their paths.
     /// This map will essentially be constant and we do not care about the VCS interpretation.
-    map: SecondaryMap<DefaultKey, PathBuf>,
+    map: Vec<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -92,7 +91,10 @@ enum Source {
 
 #[derive(Default, Debug)]
 struct Resources<'paths> {
-    relative_files: SlotMap<DefaultKey, Managed>,
+    /// All files and tree that are owned by the `Setup`.
+    /// Note: we never intend to remove anything from here. If we did we would have to do some kind
+    /// of remapping data structure to ensure that `Files` does not access the wrong item.
+    relative_files: Vec<Managed>,
     /// Resources where we do 'simple' path replacement in a filter style.
     ///
     /// Note on ergonomics: We MAY take several different kinds of paths in the future to allow the
@@ -330,9 +332,11 @@ impl<'lt> Setup<'lt> {
     /// ```
 
     pub fn add(&mut self, path: impl AsRef<Path>) -> Files {
-        fn path_impl(resources: &mut Resources, path: &Path) -> DefaultKey {
+        fn path_impl(resources: &mut Resources, path: &Path) -> usize {
             let item = Managed::Files(path.to_owned());
-            resources.relative_files.insert(item)
+            let key = resources.relative_files.len();
+            resources.relative_files.push(item);
+            key
         }
 
         let key = path_impl(&mut self.resources, path.as_ref());
@@ -357,11 +361,11 @@ impl<'lt> Setup<'lt> {
                 let dir = git::CrateDir::new(self.manifest, &git);
                 let datapath = Path::new(self.manifest);
                 dir.tracked(&git, &mut self.resources.path_specs());
-                map = SecondaryMap::new();
+                map = vec![];
                 self.resources.relative_files
                     .iter()
-                    .for_each(|(key, path)| {
-                        map.insert(key, datapath.join(path.as_path()));
+                    .for_each(|path| {
+                        map.push(datapath.join(path.as_path()));
                     });
                 self.resources.unmanaged
                     .into_iter()
@@ -386,11 +390,11 @@ impl<'lt> Setup<'lt> {
 
                 shallow.fetch(&git, &commit_id);
                 shallow.checkout(&git, &datapath, &commit_id, &mut self.resources.path_specs());
-                map = SecondaryMap::new();
+                map = vec![];
                 self.resources.relative_files
                     .iter()
-                    .for_each(|(key, path)| {
-                        map.insert(key, datapath.join(path.as_path()));
+                    .for_each(|path| {
+                        map.push(datapath.join(path.as_path()));
                     });
                 self.resources.unmanaged
                     .into_iter()
@@ -412,13 +416,13 @@ impl<'lt> Setup<'lt> {
 
 impl Resources<'_> {
     pub fn as_paths(&self) -> impl Iterator<Item=&'_ Path> {
-        let values = self.relative_files.values().map(Managed::as_path);
+        let values = self.relative_files.iter().map(Managed::as_path);
         let unmanaged = self.unmanaged.iter().map(|x| Path::new(x));
         values.chain(unmanaged)
     }
 
     pub fn path_specs(&self) -> impl Iterator<Item=git::PathSpec<'_>> {
-        let values = self.relative_files.values().map(Managed::as_path_spec);
+        let values = self.relative_files.iter().map(Managed::as_path_spec);
         let unmanaged = self.unmanaged.iter().map(|x| git::PathSpec::Path(&**x));
         values.chain(unmanaged)
     }

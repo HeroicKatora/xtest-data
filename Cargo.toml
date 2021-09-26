@@ -11,9 +11,6 @@ exclude = ["tests/data.zip"]
 version = "1"
 default-features = false
 features = ["alloc"]
-[dependencies.slotmap]
-version = "1"
-default-features = false
 [dependencies.which]
 version = "4.2"
 
