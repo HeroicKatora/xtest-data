@@ -46,7 +46,7 @@ use std::{borrow::Cow, env, fs, ffi::OsString, path::Path, path::PathBuf};
 use serde_json::Value;
 use slotmap::{DefaultKey, SecondaryMap, SlotMap};
 
-/// A file that was registered from [`Vcs`].
+/// A file that was registered from [`Setup`].
 ///
 /// This is a key into [`FsData`]. You can retrieve the local path using [`FsData::file()`]. The
 /// returned path is either the local path on disk, when you are currently developing under a local
@@ -56,7 +56,7 @@ pub struct File {
     key: DefaultKey,
 }
 
-/// A key into [`FsData`] that was previously registered from [`Vcs`].
+/// A key into [`FsData`] that was previously registered from [`Setup`].
 ///
 /// This is a key into [`FsData`]. You can retrieve the local path using [`FsData::tree()`]. The
 /// returned path is either the local path on disk, when you are currently developing under a local
@@ -75,10 +75,10 @@ enum Managed {
 
 type FsItem<'lt> = &'lt mut PathBuf;
 
-/// The product of `Vcs`, ensuring local file system accessible test resources.
+/// The product of `Setup`, ensuring local file system accessible test resources.
 ///
 /// This object is used to retrieve the local paths of resources that have been registered with the
-/// methods [`Vcs::file()`] and [`Vcs::tree()`] before.
+/// methods [`Setup::file()`] and [`Setup::tree()`] before.
 #[derive(Debug)]
 pub struct FsData {
     /// Map all configured items to their paths.
@@ -118,14 +118,28 @@ struct Resources<'paths> {
     unmanaged: Vec<FsItem<'paths>>,
 }
 
-/// A builder for test data.
+/// A builder to configure desired test data paths.
 ///
-/// On a VCS copy of the surrounding package this will simply collect and validate the information.
-/// However, when executed in an unpacked `.crate` then, instead, we provide a detailed report of
-/// necessary data before we abort.
+/// This is created through [`setup!`] instead of a usual method as it must gather some information
+/// from the _callers_ environment first.
+///
+/// This is a builder and after configuration, its [`Setup::build()`] method should be called. Note
+/// the lifetime on this struct. This is either the lifetime of paths borrowed from the caller,
+/// which it will rewrite, or it can be `'static` when it owns all of the paths. The latter case
+/// requires them to be registered with [`Setup::file()`] and [`Setup::tree()`] instead.
+///
+/// On a VCS copy of the surrounding package this will simply collect and validate the information,
+/// canonicalizing paths to be interpreted from the Manifest in the process.
+///
+/// However, when executed in the source tree from `.crate` then it will rewrite them all to refer
+/// to a local copy of the data instead. That is, if it is allowed to, since by default we merely
+/// provide a detailed report of data paths, repository location, and commit information that would
+/// _need_ to be fetched before aborting. When the environment has opted into our access of network
+/// (and might have overridden the repository path) then we will perform the actual access,
+/// checkout, and rewrite.
 #[must_use = "This is only a builder. Call `build` to perform validation/fetch/etc."]
 #[derive(Debug)]
-pub struct Vcs<'paths> {
+pub struct Setup<'paths> {
     repository: OsString,
     manifest: &'static str,
     /// Have we determined to be local or in a crate?.
@@ -134,11 +148,14 @@ pub struct Vcs<'paths> {
     resources: Resources<'paths>,
 }
 
-/// The options determined from the environment.
+/// The options determined from the compile time environment of the crate that called us.
 ///
 /// This is every environment data we are gather from the `setup` macro, which allows us to get the
 /// environment flags passed to the _calling_ crate instead of our own. Please do not construct
 /// this directly since doing so could affect the integrity of the information.
+///
+/// This is independent from the data gathered from the _runtime_ environment. It is combined with
+/// that information in `Setup::build`.
 #[doc(hidden)]
 pub struct EnvOptions {
     pub pkg_repository: &'static str,
@@ -146,7 +163,9 @@ pub struct EnvOptions {
     pub target_tmpdir: Option<&'static str>,
 }
 
-/// Perform the configuration of local or remote data.
+/// Create a builder to configure local test data.
+///
+/// This evaluates to an instance of [`Setup`].
 ///
 /// This can be ran in _integration tests_ (and in integration tests only) to ensure that those can
 /// be replicated from a source distribution of the package, while actually using additional data
@@ -192,7 +211,7 @@ macro_rules! setup {
 }
 
 #[doc(hidden)]
-pub fn _setup(options: EnvOptions) -> Vcs<'static> {
+pub fn _setup(options: EnvOptions) -> Setup<'static> {
     let EnvOptions {
         pkg_repository: repository,
         manifest_dir: manifest,
@@ -267,7 +286,7 @@ pub fn _setup(options: EnvOptions) -> Vcs<'static> {
         inconclusive(&mut "The repository must have a valid URL");
     }
 
-    Vcs {
+    Setup {
         repository,
         manifest,
         source,
@@ -275,15 +294,18 @@ pub fn _setup(options: EnvOptions) -> Vcs<'static> {
     }
 }
 
-impl<'lt> Vcs<'lt> {
-    /// Register some paths to rewrite to their location.
+impl<'lt> Setup<'lt> {
+    /// Register some paths to rewrite their location.
+    ///
+    /// The paths should be relative to the crate's manifest. For example, to refer to data in your
+    /// `tests` directory you would use `PathBuf::from("tests/data.zip")`.
     ///
     /// The paths will be registered internally. If the repository is local they will be rewritten
     /// to be relative to the manifest location. If the repository is a crate distribution then the
     /// paths will be sparsely checked out (meaning: only that path will be downloaded from the VCS
     /// working dir and you can't expect any other files to be present).
     ///
-    /// Both of those actions will happen when you call [`build()`].
+    /// Those actions will happen when you call [`Setup::build()`].
     pub fn rewrite(mut self, iter: impl IntoIterator<Item=&'lt mut PathBuf>) -> Self {
         self.resources.unmanaged.extend(iter);
         self
@@ -313,7 +335,10 @@ impl<'lt> Vcs<'lt> {
         Tree { key }
     }
 
-    /// Run the final validation and return the frozen dictionary of file data.
+    /// Run the final validation and perform rewrites.
+    ///
+    /// Returns the frozen dictionary of file mappings that had been registered as [`Self::file()`]
+    /// or [`Self::tree()`]. This allows retrieving the final data paths for those items.
     ///
     /// ## Panics
     ///
