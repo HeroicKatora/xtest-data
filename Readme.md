@@ -1,4 +1,4 @@
-Implements fetching test data in distributed crates.
+Fetch auxiliary test data when testing published crates.
 
 # What this library is
 

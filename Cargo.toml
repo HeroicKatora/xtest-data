@@ -1,7 +1,7 @@
 [package]
 name = "xtest-data"
 version = "1.0.0-beta"
-description = "Use test data in distributed integration tests without packaging it"
+description = "Fetch auxiliary test data when testing published crates"
 license = "MIT OR Apache-2.0 OR Zlib"
 edition = "2018"
 rust-version = "1.53"
