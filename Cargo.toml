@@ -1,6 +1,6 @@
 [package]
 name = "xtest-data"
-version = "0.0.2"
+version = "0.0.3"
 description = "Use test data in distributed integration tests without packaging it"
 license = "MIT OR Apache-2.0 OR Zlib"
 edition = "2018"
