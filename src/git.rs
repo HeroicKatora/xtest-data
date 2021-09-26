@@ -1,6 +1,6 @@
-use std::path::{PathBuf, Path};
-use std::process::{Command, Stdio};
 use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use crate::inconclusive;
 
@@ -49,21 +49,21 @@ impl Git {
         datapath: &Path,
         origin: &Origin,
         commit: &CommitId,
-        resources: &mut dyn Iterator<Item=&Path>,
-        pathspecs: &mut dyn Iterator<Item=PathSpec>,
+        resources: &mut dyn Iterator<Item = &Path>,
+        pathspecs: &mut dyn Iterator<Item = PathSpec>,
     ) {
         let specs = resources.zip(pathspecs);
 
-        let var = std::env::var("CARGO_XTEST_DATA_FETCH")
-            .map_or_else(|err| {
-                match err {
-                    std::env::VarError::NotPresent => None,
-                    std::env::VarError::NotUnicode(_) => Some("no".into()),
-                }
-            }, Some);
+        let var = std::env::var("CARGO_XTEST_DATA_FETCH").map_or_else(
+            |err| match err {
+                std::env::VarError::NotPresent => None,
+                std::env::VarError::NotUnicode(_) => Some("no".into()),
+            },
+            Some,
+        );
 
-        match var.as_ref().map(String::as_str) {
-            Some("yes") | Some("1") | Some("true") => {},
+        match var.as_deref() {
+            Some("yes") | Some("1") | Some("true") => {}
             _ => {
                 eprintln!("These tests require additional data from a remote source.");
                 eprintln!("Here is what we planned to do.");
@@ -82,32 +82,33 @@ impl Git {
 
     /// Prepare `path` as a shallow clone of `origin`.
     /// Aborts if this isn't possible (see error handling policy).
-    pub fn shallow_clone(&self, path: PathBuf, origin: Origin)
-        -> ShallowBareRepository
-    {
-        let repo = ShallowBareRepository {
-            origin,
-            path,
-        };
+    pub fn shallow_clone(&self, path: PathBuf, origin: Origin) -> ShallowBareRepository {
+        let repo = ShallowBareRepository { origin, path };
 
         let _lock = FileWaitLock::for_git_dir(&repo.path);
+        let mut cmd = repo.exec(self);
 
-        // TODO: take an fslock.
         if !repo.path.exists() {
-            let mut cmd = repo.exec(self);
             // clone [options…]
-            cmd.args(["clone", "--bare", "--no-checkout", "--filter=blob:none", "--depth=1", "--"]);
+            cmd.args([
+                "clone",
+                "--bare",
+                "--no-checkout",
+                "--filter=blob:none",
+                "--depth=1",
+                "--",
+            ]);
             // <repository>
             cmd.arg(&repo.origin.url);
             // [<target>]
             cmd.arg(&repo.path);
-            cmd.status().unwrap_or_else(|mut err| inconclusive(&mut err));
         } else {
             // Test that the repo in fact exists and is recognized by git.
-            let mut cmd = repo.exec(self);
             cmd.args(["symbolic-ref", "HEAD"]);
-            cmd.status().unwrap_or_else(|mut err| inconclusive(&mut err));
         }
+
+        cmd.status()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
 
         repo
     }
@@ -115,7 +116,11 @@ impl Git {
 
 impl From<&'_ str> for CommitId {
     fn from(st: &'_ str) -> CommitId {
-        assert!(st.len() >= 40, "Unlikely to be a safe Git Object ID in vcs pin file: {}", st);
+        assert!(
+            st.len() >= 40,
+            "Unlikely to be a safe Git Object ID in vcs pin file: {}",
+            st
+        );
         CommitId(st.to_owned())
     }
 }
@@ -123,12 +128,13 @@ impl From<&'_ str> for CommitId {
 impl CrateDir {
     pub fn new(path: &str, git: &Git) -> Self {
         let dir = CrateDir {
-            path: Path::new(path).to_owned()
+            path: Path::new(path).to_owned(),
         };
 
         let mut cmd = dir.exec(git);
         cmd.args(["status", "--short"]);
-        cmd.status().unwrap_or_else(|mut err| inconclusive(&mut err));
+        cmd.status()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
         dir
     }
 
@@ -142,14 +148,17 @@ impl CrateDir {
         cmd
     }
 
-    pub fn tracked(
-        &self,
-        git: &Git,
-        paths: &mut dyn Iterator<Item=PathSpec<'_>>,
-    ) {
+    pub fn tracked(&self, git: &Git, paths: &mut dyn Iterator<Item = PathSpec<'_>>) {
         let mut cmd = self.exec(git);
         cmd.stdout(Stdio::piped());
-        cmd.args(["status", "--no-renames", "--ignored=matching", "--porcelain=v2", "--short", "-z"]);
+        cmd.args([
+            "status",
+            "--no-renames",
+            "--ignored=matching",
+            "--porcelain=v2",
+            "--short",
+            "-z",
+        ]);
         cmd.arg("--");
         let mut any = false;
         cmd.args(paths.map(|st| {
@@ -161,9 +170,11 @@ impl CrateDir {
             return;
         }
 
-        let output = cmd.output().unwrap_or_else(|mut err| inconclusive(&mut err));
-        let items = String::from_utf8(output.stdout)
+        let output = cmd
+            .output()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
+        let items =
+            String::from_utf8(output.stdout).unwrap_or_else(|mut err| inconclusive(&mut err));
         for item in items.split('\0') {
             if item.starts_with('!') {
                 eprintln!("{}", item);
@@ -195,7 +206,8 @@ impl ShallowBareRepository {
         cmd.args(["fetch", "--filter=blob:none", "--depth=1"]);
         cmd.arg(&self.origin.url);
         cmd.arg(head);
-        let exit = cmd.output()
+        let exit = cmd
+            .output()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
         if !exit.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
@@ -203,26 +215,30 @@ impl ShallowBareRepository {
         }
     }
 
+    // Known false positive in initializatioon of `complex_paths`.
+    // We need to take ownership of `path` in a branch.
+    #[allow(clippy::unnecessary_filter_map)]
     pub fn checkout(
         &self,
         git: &Git,
         worktree: &Path,
         head: &CommitId,
-        paths: &mut dyn Iterator<Item=PathSpec<'_>>,
+        paths: &mut dyn Iterator<Item = PathSpec<'_>>,
     ) {
         let mut simple_filter = vec![];
-        let paths: Vec<_> = paths
+        let complex_paths: Vec<_> = paths
             .filter_map(|path| {
                 if let Some(sparse_compatible) = path.as_encompassing_path() {
                     // Look, we don't have proper escaping for it yet and no NUL separator.
                     let format = sparse_compatible.display().to_string();
-                    if format.contains('\n') || format.contains('\0') /* ?? */ {
-                        return Some(path)
+                    // Assuming that this is fine.
+                    if !format.contains('\n') && !format.contains('\0') {
+                        simple_filter.push(path);
+                        return None;
                     }
 
-                    simple_filter.push(path);
-                    None
-                } else { 
+                    Some(path)
+                } else {
                     Some(path)
                 }
             })
@@ -234,7 +250,8 @@ impl ShallowBareRepository {
         cmd.args(["worktree", "add", "--no-checkout"]);
         cmd.arg(worktree);
         cmd.arg(head);
-        let exit = cmd.output()
+        let exit = cmd
+            .output()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
         if !exit.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
@@ -261,14 +278,17 @@ impl ShallowBareRepository {
             running.stdin = None;
             let exit = running.wait_with_output()?;
             if !exit.status.success() {
-                return Err(std::io::ErrorKind::Other.into())
+                return Err(std::io::ErrorKind::Other.into());
             }
             Ok(())
         };
 
         if let Err(err) = try_sparse_checkout() {
-            eprintln!("Version of Git appears to not support sparse-checkout: {}", err);
-            let mut all_again = simple_filter.into_iter().chain(paths);
+            eprintln!(
+                "Version of Git appears to not support sparse-checkout: {}",
+                err
+            );
+            let mut all_again = simple_filter.into_iter().chain(complex_paths);
             return self.checkout_fallback_slow(git, worktree, head, &mut all_again);
         }
 
@@ -278,16 +298,16 @@ impl ShallowBareRepository {
         cmd.arg("checkout");
         cmd.arg("--force");
         cmd.arg(&head.0);
-        let exit = cmd.output()
+        let exit = cmd
+            .output()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
         if !exit.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
             inconclusive(&mut "Git operation was not successful");
         }
 
-        self.checkout_fallback_slow(git, worktree, head, &mut paths.into_iter());
+        self.checkout_fallback_slow(git, worktree, head, &mut complex_paths.into_iter());
     }
-
 
     /// A version of `checkout` that uses checkout and a list pathspecs from stdin to determine the
     /// files in the worktree. However, it appears that this cases git to open a connection to the
@@ -297,7 +317,7 @@ impl ShallowBareRepository {
         git: &Git,
         worktree: &Path,
         head: &CommitId,
-        paths: &mut dyn Iterator<Item=PathSpec<'_>>,
+        paths: &mut dyn Iterator<Item = PathSpec<'_>>,
     ) {
         let mut cmd = self.exec(git);
         cmd.arg("--work-tree");
@@ -313,7 +333,8 @@ impl ShallowBareRepository {
             write!(stdin, "{}\0", path).unwrap_or_else(|mut err| inconclusive(&mut err));
         }
         running.stdin = None;
-        let exit = running.wait_with_output()
+        let exit = running
+            .wait_with_output()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
         if !exit.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
@@ -331,7 +352,9 @@ impl FileWaitLock {
 
         let mut _lock = fslock::LockFile::open_excl(&fslock_patch)
             .unwrap_or_else(|mut err| inconclusive(&mut err));
-        _lock.lock().unwrap_or_else(|mut err| inconclusive(&mut err));
+        _lock
+            .lock()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
 
         FileWaitLock { _lock }
     }

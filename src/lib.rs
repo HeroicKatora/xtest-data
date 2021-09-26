@@ -42,7 +42,7 @@
 #![forbid(unsafe_code)]
 mod git;
 
-use std::{borrow::Cow, env, fs, ffi::OsString, io, path::Path, path::PathBuf};
+use std::{borrow::Cow, env, ffi::OsString, fs, io, path::Path, path::PathBuf};
 use tinyjson::JsonValue;
 
 /// A file or tree that was registered from [`Setup`].
@@ -167,7 +167,7 @@ pub struct EnvOptions {
 /// stored in the package. As a tester downstream, if the maintainer of the package signs their
 /// crates, and you validate that signature, then by extension and Git's content addressability all
 /// data is ensured to have been signed-off by the maintainer.
-/// 
+///
 /// When developing locally this checks the plausibility of cargo data and then tries to determine
 /// if `git` is in use (other VCS are welcome but need to be supported by cargo first).
 ///
@@ -198,7 +198,7 @@ macro_rules! setup {
             manifest_dir: env!("CARGO_MANIFEST_DIR"),
             target_tmpdir: option_env!("CARGO_TARGET_TMPDIR"),
         })
-    }
+    };
 }
 
 #[doc(hidden)]
@@ -234,8 +234,8 @@ pub fn _setup(options: EnvOptions) -> Setup<'static> {
             }
         }
 
-        let data = fs::read_to_string(vcs_info_path)
-            .unwrap_or_else(|mut err| inconclusive(&mut err));
+        let data =
+            fs::read_to_string(vcs_info_path).unwrap_or_else(|mut err| inconclusive(&mut err));
         let vcs: JsonValue = data
             .parse()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
@@ -251,8 +251,7 @@ pub fn _setup(options: EnvOptions) -> Setup<'static> {
         // Okay, that makes sense. We know _what_ to access.
         // Now let's also try to find out how we will access it. Let's find `git`.
         // To shell out to because we are lazy.
-        let git = git::Git::new()
-            .unwrap_or_else(|mut err| inconclusive(&mut err));
+        let git = git::Git::new().unwrap_or_else(|mut err| inconclusive(&mut err));
 
         let datadir = integration_test_tempdir
             .map(Cow::Borrowed)
@@ -276,8 +275,7 @@ pub fn _setup(options: EnvOptions) -> Setup<'static> {
         }
     } else {
         // Check that we can recognize tracked files.
-        let git = git::Git::new()
-            .unwrap_or_else(|mut err| inconclusive(&mut err));
+        let git = git::Git::new().unwrap_or_else(|mut err| inconclusive(&mut err));
         Source::Local(git)
     };
 
@@ -306,7 +304,7 @@ impl<'lt> Setup<'lt> {
     /// working dir and you can't expect any other files to be present).
     ///
     /// Those actions will happen when you call [`Setup::build()`].
-    /// 
+    ///
     /// # Example
     ///
     /// ```
@@ -318,17 +316,16 @@ impl<'lt> Setup<'lt> {
     ///
     /// assert!(path.exists(), "{}", path.display());
     /// ```
-    pub fn rewrite(mut self, iter: impl IntoIterator<Item=&'lt mut PathBuf>) -> Self {
+    pub fn rewrite(mut self, iter: impl IntoIterator<Item = &'lt mut PathBuf>) -> Self {
         self.resources.unmanaged.extend(iter);
         self
     }
-
 
     /// Register the path of a file or a tree of files.
     ///
     /// The return value is a key that can later be used in [`FsData`]. All the files under this
     /// location will be checked out when `Setup::build()` is called in a crate-build.
-    /// 
+    ///
     /// # Example
     ///
     /// ```
@@ -371,17 +368,22 @@ impl<'lt> Setup<'lt> {
                 let datapath = Path::new(self.manifest);
                 dir.tracked(&git, &mut self.resources.path_specs());
                 map = vec![];
-                self.resources.relative_files
-                    .iter()
-                    .for_each(|path| {
-                        map.push(datapath.join(path.as_path()));
-                    });
-                self.resources.unmanaged
+                self.resources.relative_files.iter().for_each(|path| {
+                    map.push(datapath.join(path.as_path()));
+                });
+                self.resources
+                    .unmanaged
                     .into_iter()
-                    .for_each(|item| set_root(&datapath, item));
+                    .for_each(|item| set_root(datapath, item));
             }
-            Source::VcsFromManifest { commit_id, datadir, git, } => {
-                let origin = git::Origin { url: self.repository };
+            Source::VcsFromManifest {
+                commit_id,
+                datadir,
+                git,
+            } => {
+                let origin = git::Origin {
+                    url: self.repository,
+                };
 
                 let gitpath = datadir.join("xtest-data-git");
                 let datapath = unique_dir(&datadir, "xtest-data-tree")
@@ -393,19 +395,24 @@ impl<'lt> Setup<'lt> {
                     &origin,
                     &commit_id,
                     &mut self.resources.as_paths(),
-                    &mut self.resources.path_specs());
+                    &mut self.resources.path_specs(),
+                );
 
                 let shallow = git.shallow_clone(gitpath, origin);
 
                 shallow.fetch(&git, &commit_id);
-                shallow.checkout(&git, &datapath, &commit_id, &mut self.resources.path_specs());
+                shallow.checkout(
+                    &git,
+                    &datapath,
+                    &commit_id,
+                    &mut self.resources.path_specs(),
+                );
                 map = vec![];
-                self.resources.relative_files
-                    .iter()
-                    .for_each(|path| {
-                        map.push(datapath.join(path.as_path()));
-                    });
-                self.resources.unmanaged
+                self.resources.relative_files.iter().for_each(|path| {
+                    map.push(datapath.join(path.as_path()));
+                });
+                self.resources
+                    .unmanaged
                     .into_iter()
                     .for_each(|item| set_root(&datapath, item));
             }
@@ -417,20 +424,18 @@ impl<'lt> Setup<'lt> {
         // TODO: of course we could avoid actually checking files onto the disk if we had some kind
         // of `io::Read` abstraction that read them straight from `git cat` instead. But chances
         // are you'll like your files and directory structures.
-        FsData {
-            map,
-        }
+        FsData { map }
     }
 }
 
 impl Resources<'_> {
-    pub fn as_paths(&self) -> impl Iterator<Item=&'_ Path> {
+    pub fn as_paths(&self) -> impl Iterator<Item = &'_ Path> {
         let values = self.relative_files.iter().map(Managed::as_path);
         let unmanaged = self.unmanaged.iter().map(|x| Path::new(x));
         values.chain(unmanaged)
     }
 
-    pub fn path_specs(&self) -> impl Iterator<Item=git::PathSpec<'_>> {
+    pub fn path_specs(&self) -> impl Iterator<Item = git::PathSpec<'_>> {
         let values = self.relative_files.iter().map(Managed::as_path_spec);
         let unmanaged = self.unmanaged.iter().map(|x| git::PathSpec::Path(&**x));
         values.chain(unmanaged)
@@ -466,7 +471,7 @@ fn set_root(path: &Path, dir: &mut PathBuf) {
 fn unique_dir(base: &Path, prefix: &str) -> Result<PathBuf, std::io::Error> {
     let mut rng = nanorand::tls::tls_rng();
     assert!(matches!(
-        Path::new(prefix).components().nth(0),
+        Path::new(prefix).components().next(),
         Some(std::path::Component::Normal(_))
     ));
     assert!(Path::new(prefix).components().nth(1).is_none());
@@ -482,8 +487,8 @@ fn unique_dir(base: &Path, prefix: &str) -> Result<PathBuf, std::io::Error> {
 
         for byte in num {
             let (low, hi) = (usize::from(byte & 0xf), usize::from((byte >> 4) & 0xf));
-            buffer.push_str(&TABLE[low..low+1]);
-            buffer.push_str(&TABLE[hi..hi+1]);
+            buffer.push_str(&TABLE[low..low + 1]);
+            buffer.push_str(&TABLE[hi..hi + 1]);
         }
 
         base.join(&buffer)
