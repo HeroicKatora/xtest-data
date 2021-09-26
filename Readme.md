@@ -64,13 +64,6 @@ to download and checkout requested files to the relative location.
 
 ## Known problems
 
-You can not yet run tests in parallel. Pass `--test-threads 1` to all tests as
-a workaround. The underlying issue is two-fold: most git operations don't fully
-lock everything. For example, cloning twice into the same directory goes
-horribly wrong. Additionally, the `xtest_data` package reuses the same worktree
-directory. Since we are performing sparse checkouts, that tests might use
-conflicting trees.
-
 When fetching data, git may repeatedly ask for credentials and is pretty slow.
 This issue should not occur when `git` supports `sparse-checkout`. This is
 because we are shelling out to Git and `git checkout`, which we utilize to very

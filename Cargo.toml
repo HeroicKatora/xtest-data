@@ -1,6 +1,6 @@
 [package]
 name = "xtest-data"
-version = "0.0.3"
+version = "0.0.4"
 description = "Use test data in distributed integration tests without packaging it"
 license = "MIT OR Apache-2.0 OR Zlib"
 edition = "2018"
@@ -14,12 +14,9 @@ version = "0.1.8"
 features = ["multilock"]
 [dependencies.which]
 version = "4.2"
-
 [dependencies.nanorand]
 default-features = false
-# Maybe we'll not use tls in the future?
 features = ["std", "tls", "wyrand"]
 
 [workspace]
 members = [".", "xtask"]
-exclude = ["target/**"]
