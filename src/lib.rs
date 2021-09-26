@@ -43,7 +43,7 @@
 mod git;
 
 use std::{borrow::Cow, env, fs, ffi::OsString, path::Path, path::PathBuf};
-use serde_json::Value;
+use tinyjson::JsonValue;
 
 /// A file or tree that was registered from [`Setup`].
 ///
@@ -225,18 +225,27 @@ pub fn _setup(options: EnvOptions) -> Setup<'static> {
 
     let source = if vcs_info_path.exists() {
         // Allow the override.
+        trait GetKey {
+            fn get_key(&self, key: &str) -> Option<&Self>;
+        }
+        impl GetKey for JsonValue {
+            fn get_key(&self, key: &str) -> Option<&Self> {
+                self.get::<std::collections::HashMap<_, _>>()?.get(key)
+            }
+        }
 
         let data = fs::read_to_string(vcs_info_path)
             .unwrap_or_else(|mut err| inconclusive(&mut err));
-        let vcs: Value = serde_json::from_str(&data)
+        let vcs: JsonValue = data
+            .parse()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
         let commit_id = vcs
-            .get("git")
+            .get_key("git")
             .unwrap_or_else(|| inconclusive(&mut "VCS does not contain a git section."))
-            .get("sha1")
+            .get_key("sha1")
             .unwrap_or_else(|| inconclusive(&mut "VCS commit ID not recognized."))
-            .as_str()
-            .map(git::CommitId::from)
+            .get::<String>()
+            .map(|id| git::CommitId::from(&**id))
             .unwrap_or_else(|| inconclusive(&mut "VCS commit ID is not a string"));
 
         // Okay, that makes sense. We know _what_ to access.

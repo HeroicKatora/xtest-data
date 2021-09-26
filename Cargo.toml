@@ -7,10 +7,8 @@ edition = "2018"
 repository = "https://github.com/HeroicKatora/xtest-data"
 exclude = ["tests/data.zip"]
 
-[dependencies.serde_json]
-version = "1"
-default-features = false
-features = ["alloc"]
+[dependencies.tinyjson]
+version = "2"
 [dependencies.which]
 version = "4.2"
 
