@@ -140,7 +140,8 @@ impl Git {
         cmd.status()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
 
-        std::fs::write(repo.path.join("shallow"), head.0.as_bytes())
+        let content = format!("{}\n", head.0);
+        std::fs::write(repo.path.join("shallow"), content)
             .unwrap_or_else(|mut err| inconclusive(&mut err));
 
         repo
@@ -226,6 +227,8 @@ impl CrateDir {
         paths: &mut dyn Iterator<Item = PathSpec<'_>>,
         pack_name: OsString,
     ) {
+        let _lock = FileWaitLock::for_git_dir(&self.path);
+
         let PathSpecFilter {
             simple_filter,
             complex_paths,
@@ -233,7 +236,7 @@ impl CrateDir {
         let sparse = self.sparse_rev_list(git, &simple_filter);
 
         let mut cmd = self.exec(git);
-        cmd.args(["pack-objects", "--incremental"]);
+        cmd.args(["pack-objects"]);
         cmd.arg(Path::new(&pack_name).join("xtest-data"));
         cmd.stdin(Stdio::piped());
         cmd.stderr(Stdio::piped());
@@ -282,7 +285,6 @@ impl CrateDir {
         let mut treeish = list_for("--filter=blob:none".into());
 
         objects.append(&mut treeish);
-        println!("{}", String::from_utf8_lossy(&objects));
         objects
     }
 
@@ -297,7 +299,8 @@ impl CrateDir {
         let stdin = running.stdin.as_mut().expect("Spawned with stdio-piped");
         for path in paths {
             use std::io::Write;
-            write!(stdin, "{}\0", path).unwrap_or_else(|mut err| inconclusive(&mut err));
+            let path = path.as_encompassing_path().expect("Only simple paths");
+            write!(stdin, "{}\0", path.display()).unwrap_or_else(|mut err| inconclusive(&mut err));
         }
 
         running.stdin = None;
@@ -382,27 +385,31 @@ impl ShallowBareRepository {
     pub fn unpack(&self, git: &Git, packs: &OsString) {
         let _lock = FileWaitLock::for_git_dir(&self.path);
 
-        let opendir = std::fs::read_dir(packs)
-            .unwrap_or_else(|mut err| inconclusive(&mut err));
+        let opendir = std::fs::read_dir(packs).unwrap_or_else(|mut err| inconclusive(&mut err));
 
         for entry in opendir.filter_map(Result::ok) {
-            if !entry.path().to_str().map_or(false, |st| st.ends_with("pack")) {
+            if !entry
+                .path()
+                .to_str()
+                .map_or(false, |st| st.ends_with("pack"))
+            {
                 continue;
             }
 
-            let mut file = std::fs::File::open(entry.path())
-                .unwrap_or_else(|mut err| inconclusive(&mut err));
+            let mut file =
+                std::fs::File::open(entry.path()).unwrap_or_else(|mut err| inconclusive(&mut err));
 
             let mut git = self.exec(git);
-            git.arg("unpack-objects");
+            git.args(["unpack-objects", "-r"]);
             git.stdin(Stdio::piped());
 
-            let mut cmd = git.spawn()
-                .unwrap_or_else(|mut err| inconclusive(&mut err));
+            let mut cmd = git.spawn().unwrap_or_else(|mut err| inconclusive(&mut err));
             let mut stdin = cmd.stdin.as_mut().expect("Supplied with Stdio::piped");
 
-            std::io::copy(&mut file, &mut stdin)
-                .unwrap_or_else(|mut err| inconclusive(&mut err));
+            std::io::copy(&mut file, &mut stdin).unwrap_or_else(|mut err| inconclusive(&mut err));
+            std::io::Write::flush(stdin).unwrap_or_else(|mut err| inconclusive(&mut err));
+            // Flush and close.
+            cmd.stdin = None;
 
             let exit = cmd
                 .wait_with_output()
@@ -424,6 +431,8 @@ impl ShallowBareRepository {
         head: &CommitId,
         paths: &mut dyn Iterator<Item = PathSpec<'_>>,
     ) {
+        let _lock = FileWaitLock::for_git_dir(&self.path);
+
         let PathSpecFilter {
             simple_filter,
             complex_paths,
@@ -481,9 +490,11 @@ impl ShallowBareRepository {
         cmd.arg("checkout");
         cmd.arg("--force");
         cmd.arg(&head.0);
+        cmd.stderr(Stdio::piped());
         let exit = cmd
             .output()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
+
         if !exit.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
             inconclusive(&mut "Git operation was not successful");
