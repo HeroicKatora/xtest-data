@@ -116,6 +116,7 @@ impl Git {
 
 impl From<&'_ str> for CommitId {
     fn from(st: &'_ str) -> CommitId {
+        let st = st.trim();
         assert!(
             st.len() >= 40,
             "Unlikely to be a safe Git Object ID in vcs pin file: {}",
@@ -185,6 +186,131 @@ impl CrateDir {
             }
         }
     }
+
+    pub fn pack_objects(
+        &self,
+        git: &Git,
+        paths: &mut dyn Iterator<Item = PathSpec<'_>>,
+        pack_name: OsString,
+    ) {
+        let PathSpecFilter {
+            simple_filter,
+            complex_paths,
+        } = paths.collect();
+        let sparse = self.sparse_rev_list(git, &simple_filter);
+        println!("{:?}", String::from_utf8_lossy(&sparse));
+
+        let mut cmd = self.exec(git);
+        cmd.args(["pack-objects", "--incremental"]);
+        cmd.arg(pack_name);
+        cmd.stdin(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let mut running = cmd.spawn().unwrap_or_else(|mut err| inconclusive(&mut err));
+        let stdin = running.stdin.as_mut().expect("Spawned with stdio-piped");
+        std::io::Write::write_all(stdin, &sparse)
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+        running.stdin = None;
+
+        let exit = running
+            .wait_with_output()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+
+        if !exit.status.success() {
+            eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
+            inconclusive(&mut "Git operation was not successful");
+        }
+    }
+
+    fn sparse_rev_list(&self, git: &Git, paths: &[PathSpec<'_>]) -> Vec<u8> {
+        let CommitId(oid) = self
+            .hash_sparse_oid(git, paths)
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+
+        let mut cmd = self.exec(git);
+        // Shallow, and sparse filtered, list of objects.
+        cmd.args(["rev-list", "-n", "1", "--objects", "--no-object-names"]);
+        cmd.arg(format!("--filter=sparse:oid={oid}", oid = oid));
+        cmd.arg("HEAD");
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let exit = cmd
+            .output()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+        if !exit.status.success() {
+            eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
+            inconclusive(&mut "Git operation was not successful");
+        }
+
+        exit.stdout
+    }
+
+    fn hash_sparse_oid(&self, git: &Git, paths: &[PathSpec<'_>]) -> std::io::Result<CommitId> {
+        let mut cmd = self.exec(git);
+        cmd.args(["hash-object", "-w", "--stdin"]);
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let mut running = cmd.spawn().unwrap_or_else(|mut err| inconclusive(&mut err));
+        let stdin = running.stdin.as_mut().expect("Spawned with stdio-piped");
+        for path in paths {
+            use std::io::Write;
+            write!(stdin, "{}\0", path).unwrap_or_else(|mut err| inconclusive(&mut err));
+        }
+
+        running.stdin = None;
+        let exit = running
+            .wait_with_output()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+
+        if !exit.status.success() {
+            eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
+            inconclusive(&mut "Git operation was not successful");
+        }
+
+        let id = String::from_utf8_lossy(&exit.stdout);
+        Ok(id.as_ref().into())
+    }
+}
+
+#[derive(Default)]
+struct PathSpecFilter<'lt> {
+    simple_filter: Vec<PathSpec<'lt>>,
+    complex_paths: Vec<PathSpec<'lt>>,
+}
+
+impl<'lt> Extend<PathSpec<'lt>> for PathSpecFilter<'lt> {
+    fn extend<T: IntoIterator<Item = PathSpec<'lt>>>(&mut self, paths: T) {
+        let simple_filter = &mut self.simple_filter;
+        let complex = paths
+            .into_iter()
+            .filter_map(|path| {
+                if let Some(sparse_compatible) = path.as_encompassing_path() {
+                    // Look, we don't have proper escaping for it yet and no NUL separator.
+                    let format = sparse_compatible.display().to_string();
+                    // Assuming that this is fine.
+                    if !format.contains('\n') && !format.contains('\0') {
+                        simple_filter.push(path);
+                        return None;
+                    }
+
+                    Some(path)
+                } else {
+                    Some(path)
+                }
+            });
+        self.complex_paths.extend(complex);
+    }
+}
+
+impl<'lt> std::iter::FromIterator<PathSpec<'lt>> for PathSpecFilter<'lt> {
+    fn from_iter<T: IntoIterator<Item = PathSpec<'lt>>>(iter: T) -> Self {
+        let mut this = PathSpecFilter::default();
+        this.extend(iter);
+        this
+    }
 }
 
 impl ShallowBareRepository {
@@ -225,24 +351,10 @@ impl ShallowBareRepository {
         head: &CommitId,
         paths: &mut dyn Iterator<Item = PathSpec<'_>>,
     ) {
-        let mut simple_filter = vec![];
-        let complex_paths: Vec<_> = paths
-            .filter_map(|path| {
-                if let Some(sparse_compatible) = path.as_encompassing_path() {
-                    // Look, we don't have proper escaping for it yet and no NUL separator.
-                    let format = sparse_compatible.display().to_string();
-                    // Assuming that this is fine.
-                    if !format.contains('\n') && !format.contains('\0') {
-                        simple_filter.push(path);
-                        return None;
-                    }
-
-                    Some(path)
-                } else {
-                    Some(path)
-                }
-            })
-            .collect();
+        let PathSpecFilter {
+            simple_filter,
+            complex_paths,
+        } = paths.collect();
 
         let mut cmd = self.exec(git);
         cmd.args(["worktree", "add", "--no-checkout"]);
