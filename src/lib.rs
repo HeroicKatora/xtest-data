@@ -271,7 +271,7 @@ pub fn _setup(options: EnvOptions) -> Setup<'static> {
             .expect("This setup must only be called in an integration test or benchmark, or with an explicit TMPDIR")
             .into_owned();
 
-        pack_objects = None;
+        pack_objects = std::env::var_os("CARGO_XTEST_DATA_PACK_OBJECTS");
         source = Source::VcsFromManifest {
             commit_id,
             git,
@@ -375,6 +375,8 @@ impl<'lt> Setup<'lt> {
                 dir.tracked(&git, &mut self.resources.path_specs());
 
                 if let Some(pack_objects) = self.pack_objects {
+                    std::fs::create_dir_all(&pack_objects)
+                        .unwrap_or_else(|mut err| inconclusive(&mut err));
                     dir.pack_objects(&git, &mut self.resources.path_specs(), pack_objects);
                 }
 
@@ -401,18 +403,24 @@ impl<'lt> Setup<'lt> {
                 let datapath = unique_dir(&datadir, "xtest-data-tree")
                     .unwrap_or_else(|mut err| inconclusive(&mut err));
 
-                git.consent_to_use(
-                    &gitpath,
-                    &datapath,
-                    &origin,
-                    &commit_id,
-                    &mut self.resources.as_paths(),
-                    &mut self.resources.path_specs(),
-                );
+                let shallow;
+                if let Some(pack_objects) = self.pack_objects {
+                    shallow = git.bare(gitpath, &commit_id);
+                    shallow.unpack(&git, &pack_objects);
+                } else {
+                    let origin = git.consent_to_use(
+                        &gitpath,
+                        &datapath,
+                        &origin,
+                        &commit_id,
+                        &mut self.resources.as_paths(),
+                        &mut self.resources.path_specs(),
+                    );
 
-                let shallow = git.shallow_clone(gitpath, origin);
+                    shallow = git.shallow_clone(gitpath, &origin);
+                    shallow.fetch(&git, &commit_id, &origin);
+                }
 
-                shallow.fetch(&git, &commit_id);
                 shallow.checkout(
                     &git,
                     &datapath,
