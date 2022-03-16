@@ -198,7 +198,6 @@ impl CrateDir {
             complex_paths,
         } = paths.collect();
         let sparse = self.sparse_rev_list(git, &simple_filter);
-        println!("{:?}", String::from_utf8_lossy(&sparse));
 
         let mut cmd = self.exec(git);
         cmd.args(["pack-objects", "--incremental"]);
@@ -227,23 +226,31 @@ impl CrateDir {
             .hash_sparse_oid(git, paths)
             .unwrap_or_else(|mut err| inconclusive(&mut err));
 
-        let mut cmd = self.exec(git);
-        // Shallow, and sparse filtered, list of objects.
-        cmd.args(["rev-list", "-n", "1", "--objects", "--no-object-names"]);
-        cmd.arg(format!("--filter=sparse:oid={oid}", oid = oid));
-        cmd.arg("HEAD");
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
+        let list_for = |filterspec| {
+            let mut cmd = self.exec(git);
+            // Shallow, and sparse filtered, list of objects.
+            cmd.args(["rev-list", "-n", "1", "--objects"]);
+            cmd.arg(filterspec);
+            cmd.arg("HEAD");
+            cmd.stdout(Stdio::piped());
+            cmd.stderr(Stdio::piped());
 
-        let exit = cmd
-            .output()
-            .unwrap_or_else(|mut err| inconclusive(&mut err));
-        if !exit.status.success() {
-            eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
-            inconclusive(&mut "Git operation was not successful");
-        }
+            let exit = cmd
+                .output()
+                .unwrap_or_else(|mut err| inconclusive(&mut err));
+            if !exit.status.success() {
+                eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
+                inconclusive(&mut "Git operation was not successful");
+            }
 
-        exit.stdout
+            exit.stdout
+        };
+
+        let mut objects = list_for(format!("--filter=sparse:oid={oid}", oid = oid));
+        let mut treeish =  list_for("--filter=blob:none".into());
+
+        objects.append(&mut treeish);
+        objects
     }
 
     fn hash_sparse_oid(&self, git: &Git, paths: &[PathSpec<'_>]) -> std::io::Result<CommitId> {
