@@ -73,7 +73,7 @@ fn main() -> Result<(), LocatedError> {
     Command::new(CARGO)
         .current_dir(&extracted)
         .args(["test", "--no-fail-fast", "--release", "--", "--nocapture"])
-        .env("CARGO_TARGET_DIR",  repo.join("target"))
+        .env("CARGO_TARGET_DIR", repo.join("target"))
         .env("CARGO_XTEST_DATA_TMPDIR", &tmp)
         .env("CARGO_XTEST_DATA_PACK_OBJECTS", &packdir)
         .success()
