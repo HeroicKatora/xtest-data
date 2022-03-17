@@ -20,7 +20,7 @@ fn main() -> Result<(), LocatedError> {
         .canonicalize()
         .map_err(anchor_error())?
         .join("target")
-        .join("pack");
+        .join("xtest-data");
 
     Command::new(CARGO)
         .args(["test"])

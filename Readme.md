@@ -55,18 +55,18 @@ instead of as a direct path.
 First, export the self-contained object-pack collection with your test runs.
 
 ```
-CARGO_XTEST_DATA_PACK_OBJECTS="$(pwd)/target/pack" cargo test
-zip xtest-data.zip -r target/pack
+CARGO_XTEST_DATA_PACK_OBJECTS="$(pwd)/target/xtest-data" cargo test
+zip xtest-data.zip -r target/xtest-data
 ```
 
 This allows utilizing the library component to provide a compelling experience
 for testing distributed packages with the test data as a separate archive. You
-can of course pack `target/pack` in any other shape or form you prefer. When
-testing a crate archive reverse these steps:
+can of course pack `target/xtest-data` in any other shape or form you prefer.
+When testing a crate archive reverse these steps:
 
 ```
 unzip xtest-data.zip
-CARGO_XTEST_DATA_PACK_OBJECTS="$(pwd)/target/pack" cargo test
+CARGO_XTEST_DATA_PACK_OBJECTS="$(pwd)/target/xtest-data" cargo test
 ```
 
 # Details
