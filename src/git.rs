@@ -12,7 +12,6 @@ pub(crate) struct Git {
 
 /// A bare repository created by us.
 pub(crate) struct ShallowBareRepository {
-    origin: Origin,
     path: PathBuf,
 }
 
@@ -26,6 +25,11 @@ pub(crate) struct FileWaitLock {
 }
 
 pub(crate) struct Origin {
+    pub url: OsString,
+}
+
+/// An origin that is okay to fetch from.
+pub(crate) struct ClearedOrigin {
     pub url: OsString,
 }
 
@@ -51,7 +55,7 @@ impl Git {
         commit: &CommitId,
         resources: &mut dyn Iterator<Item = &Path>,
         pathspecs: &mut dyn Iterator<Item = PathSpec>,
-    ) {
+    ) -> ClearedOrigin {
         let specs = resources.zip(pathspecs);
 
         let var = std::env::var("CARGO_XTEST_DATA_FETCH").map_or_else(
@@ -78,12 +82,16 @@ impl Git {
                 inconclusive(&mut "refusing to continue without explicit agreement to network (see error log).")
             }
         }
+
+        ClearedOrigin {
+            url: origin.url.clone(),
+        }
     }
 
     /// Prepare `path` as a shallow clone of `origin`.
     /// Aborts if this isn't possible (see error handling policy).
-    pub fn shallow_clone(&self, path: PathBuf, origin: Origin) -> ShallowBareRepository {
-        let repo = ShallowBareRepository { origin, path };
+    pub fn shallow_clone(&self, path: PathBuf, origin: &ClearedOrigin) -> ShallowBareRepository {
+        let repo = ShallowBareRepository { path };
 
         let _lock = FileWaitLock::for_git_dir(&repo.path);
         let mut cmd = repo.exec(self);
@@ -99,7 +107,7 @@ impl Git {
                 "--",
             ]);
             // <repository>
-            cmd.arg(&repo.origin.url);
+            cmd.arg(&origin.url);
             // [<target>]
             cmd.arg(&repo.path);
         } else {
@@ -112,10 +120,37 @@ impl Git {
 
         repo
     }
+
+    /// Prepare `path` as a shallow clone of `origin`.
+    /// Aborts if this isn't possible (see error handling policy).
+    pub fn bare(&self, path: PathBuf, head: &CommitId) -> ShallowBareRepository {
+        let repo = ShallowBareRepository { path };
+
+        let _lock = FileWaitLock::for_git_dir(&repo.path);
+        let mut cmd = repo.exec(self);
+
+        if !repo.path.exists() {
+            cmd.args(["init", "--bare", "--"]);
+            cmd.arg(&repo.path);
+        } else {
+            // Test that the repo in fact exists and is recognized by git.
+            cmd.args(["symbolic-ref", "HEAD"]);
+        }
+
+        cmd.status()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+
+        let content = format!("{}\n", head.0);
+        std::fs::write(repo.path.join("shallow"), content)
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+
+        repo
+    }
 }
 
 impl From<&'_ str> for CommitId {
     fn from(st: &'_ str) -> CommitId {
+        let st = st.trim();
         assert!(
             st.len() >= 40,
             "Unlikely to be a safe Git Object ID in vcs pin file: {}",
@@ -185,6 +220,142 @@ impl CrateDir {
             }
         }
     }
+
+    pub fn pack_objects(
+        &self,
+        git: &Git,
+        paths: &mut dyn Iterator<Item = PathSpec<'_>>,
+        pack_name: OsString,
+    ) {
+        let _lock = FileWaitLock::for_git_dir(&self.path);
+
+        let PathSpecFilter {
+            simple_filter,
+            complex_paths,
+        } = paths.collect();
+        let sparse = self.sparse_rev_list(git, &simple_filter);
+
+        if !complex_paths.is_empty() {
+            inconclusive(&mut "Sorry, paths too complex to pack reliably");
+        }
+
+        let mut cmd = self.exec(git);
+        cmd.args(["pack-objects"]);
+        cmd.arg(Path::new(&pack_name).join("xtest-data"));
+        cmd.stdin(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let mut running = cmd.spawn().unwrap_or_else(|mut err| inconclusive(&mut err));
+        let stdin = running.stdin.as_mut().expect("Spawned with stdio-piped");
+        std::io::Write::write_all(stdin, &sparse).unwrap_or_else(|mut err| inconclusive(&mut err));
+        running.stdin = None;
+
+        let exit = running
+            .wait_with_output()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+
+        if !exit.status.success() {
+            eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
+            inconclusive(&mut "Git operation was not successful");
+        }
+    }
+
+    fn sparse_rev_list(&self, git: &Git, paths: &[PathSpec<'_>]) -> Vec<u8> {
+        let CommitId(oid) = self
+            .hash_sparse_oid(git, paths)
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+
+        let list_for = |filterspec| {
+            let mut cmd = self.exec(git);
+            // Shallow, and sparse filtered, list of objects.
+            cmd.args(["rev-list", "-n", "1", "--objects", "--no-object-names"]);
+            cmd.arg(filterspec);
+            cmd.arg("HEAD");
+            cmd.stdout(Stdio::piped());
+            cmd.stderr(Stdio::piped());
+
+            let exit = cmd
+                .output()
+                .unwrap_or_else(|mut err| inconclusive(&mut err));
+            if !exit.status.success() {
+                eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
+                inconclusive(&mut "Git operation was not successful");
+            }
+
+            exit.stdout
+        };
+
+        let mut objects = list_for(format!("--filter=sparse:oid={oid}", oid = oid));
+        let mut treeish = list_for("--filter=blob:none".into());
+
+        objects.append(&mut treeish);
+        objects
+    }
+
+    fn hash_sparse_oid(&self, git: &Git, paths: &[PathSpec<'_>]) -> std::io::Result<CommitId> {
+        let mut cmd = self.exec(git);
+        cmd.args(["hash-object", "-w", "--stdin"]);
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let mut running = cmd.spawn().unwrap_or_else(|mut err| inconclusive(&mut err));
+        let stdin = running.stdin.as_mut().expect("Spawned with stdio-piped");
+        for path in paths {
+            use std::io::Write;
+            let path = path.as_encompassing_path().expect("Only simple paths");
+            write!(stdin, "{}\0", path.display()).unwrap_or_else(|mut err| inconclusive(&mut err));
+        }
+
+        running.stdin = None;
+        let exit = running
+            .wait_with_output()
+            .unwrap_or_else(|mut err| inconclusive(&mut err));
+
+        if !exit.status.success() {
+            eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
+            inconclusive(&mut "Git operation was not successful");
+        }
+
+        let id = String::from_utf8_lossy(&exit.stdout);
+        Ok(id.as_ref().into())
+    }
+}
+
+#[derive(Default)]
+struct PathSpecFilter<'lt> {
+    simple_filter: Vec<PathSpec<'lt>>,
+    complex_paths: Vec<PathSpec<'lt>>,
+}
+
+impl<'lt> Extend<PathSpec<'lt>> for PathSpecFilter<'lt> {
+    fn extend<T: IntoIterator<Item = PathSpec<'lt>>>(&mut self, paths: T) {
+        let simple_filter = &mut self.simple_filter;
+        let complex = paths.into_iter().filter_map(|path| {
+            if let Some(sparse_compatible) = path.as_encompassing_path() {
+                // Look, we don't have proper escaping for it yet and no NUL separator.
+                let format = sparse_compatible.display().to_string();
+                // Assuming that this is fine.
+                if !format.contains('\n') && !format.contains('\0') {
+                    simple_filter.push(path);
+                    return None;
+                }
+
+                Some(path)
+            } else {
+                Some(path)
+            }
+        });
+        self.complex_paths.extend(complex);
+    }
+}
+
+impl<'lt> std::iter::FromIterator<PathSpec<'lt>> for PathSpecFilter<'lt> {
+    fn from_iter<T: IntoIterator<Item = PathSpec<'lt>>>(iter: T) -> Self {
+        let mut this = PathSpecFilter::default();
+        this.extend(iter);
+        this
+    }
 }
 
 impl ShallowBareRepository {
@@ -199,12 +370,12 @@ impl ShallowBareRepository {
         cmd
     }
 
-    pub fn fetch(&self, git: &Git, head: &CommitId) {
+    pub fn fetch(&self, git: &Git, head: &CommitId, origin: &ClearedOrigin) {
         let _lock = FileWaitLock::for_git_dir(&self.path);
 
         let mut cmd = self.exec(git);
         cmd.args(["fetch", "--filter=blob:none", "--depth=1"]);
-        cmd.arg(&self.origin.url);
+        cmd.arg(&origin.url);
         cmd.arg(head);
         let exit = cmd
             .output()
@@ -212,6 +383,45 @@ impl ShallowBareRepository {
         if !exit.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
             inconclusive(&mut "Git operation was not successful");
+        }
+    }
+
+    pub fn unpack(&self, git: &Git, packs: &OsString) {
+        let _lock = FileWaitLock::for_git_dir(&self.path);
+
+        let opendir = std::fs::read_dir(packs).unwrap_or_else(|mut err| inconclusive(&mut err));
+
+        for entry in opendir.filter_map(Result::ok) {
+            if !entry
+                .path()
+                .to_str()
+                .map_or(false, |st| st.ends_with("pack"))
+            {
+                continue;
+            }
+
+            let mut file =
+                std::fs::File::open(entry.path()).unwrap_or_else(|mut err| inconclusive(&mut err));
+
+            let mut git = self.exec(git);
+            git.args(["unpack-objects", "-r"]);
+            git.stdin(Stdio::piped());
+
+            let mut cmd = git.spawn().unwrap_or_else(|mut err| inconclusive(&mut err));
+            let mut stdin = cmd.stdin.as_mut().expect("Supplied with Stdio::piped");
+
+            std::io::copy(&mut file, &mut stdin).unwrap_or_else(|mut err| inconclusive(&mut err));
+            std::io::Write::flush(stdin).unwrap_or_else(|mut err| inconclusive(&mut err));
+            // Flush and close.
+            cmd.stdin = None;
+
+            let exit = cmd
+                .wait_with_output()
+                .unwrap_or_else(|mut err| inconclusive(&mut err));
+            if !exit.status.success() {
+                eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
+                inconclusive(&mut "Git operation was not successful");
+            }
         }
     }
 
@@ -225,24 +435,12 @@ impl ShallowBareRepository {
         head: &CommitId,
         paths: &mut dyn Iterator<Item = PathSpec<'_>>,
     ) {
-        let mut simple_filter = vec![];
-        let complex_paths: Vec<_> = paths
-            .filter_map(|path| {
-                if let Some(sparse_compatible) = path.as_encompassing_path() {
-                    // Look, we don't have proper escaping for it yet and no NUL separator.
-                    let format = sparse_compatible.display().to_string();
-                    // Assuming that this is fine.
-                    if !format.contains('\n') && !format.contains('\0') {
-                        simple_filter.push(path);
-                        return None;
-                    }
+        let _lock = FileWaitLock::for_git_dir(&self.path);
 
-                    Some(path)
-                } else {
-                    Some(path)
-                }
-            })
-            .collect();
+        let PathSpecFilter {
+            simple_filter,
+            complex_paths,
+        } = paths.collect();
 
         let mut cmd = self.exec(git);
         cmd.args(["worktree", "add", "--no-checkout"]);
@@ -296,9 +494,11 @@ impl ShallowBareRepository {
         cmd.arg("checkout");
         cmd.arg("--force");
         cmd.arg(&head.0);
+        cmd.stderr(Stdio::piped());
         let exit = cmd
             .output()
             .unwrap_or_else(|mut err| inconclusive(&mut err));
+
         if !exit.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
             inconclusive(&mut "Git operation was not successful");

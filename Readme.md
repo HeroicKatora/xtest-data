@@ -7,6 +7,11 @@ documentation tests can not be ran from the published `.crate` archive alone,
 if they depend on auxiliary data files that should not be shipped to downstream
 packages and end users.
 
+There are two modes: An 'online' mode where it fetches data via shallow and
+sparse clone from a repository (online, or prepared clone) or an offline mode
+consuming git object packs as auxiliary files, which the library can also
+export as a minimal archive of test data.
+
 ## Motivation
 
 As a developer of a library, you will write some integration with the goal of
@@ -28,12 +33,7 @@ It should ensure that:
 
 ## How to apply
 
-Integrate this package as a dev-dependency into your tests. This allows
-utilizing the library component to provide a compelling experience for testing
-distributed packages without the need to distribute the test data itself. The
-main goal of this package is: if the tests run in your CI pipeline where your
-complete repository is available, then they should also work with the package
-distribution.
+Integrate this package as a dev-dependency into your tests.
 
 ```rust
 let mut path = PathBuf::from("tests/data.zip");
@@ -50,6 +50,25 @@ is that this indicates a faulty setup, not something the test should handle.
 The expectation of the library is that you access all data through this library
 instead of as a direct path.
 
+## How to use offline
+
+First, export the self-contained object-pack collection with your test runs.
+
+```
+CARGO_XTEST_DATA_PACK_OBJECTS="$(pwd)/target/xtest-data" cargo test
+zip xtest-data.zip -r target/xtest-data
+```
+
+This allows utilizing the library component to provide a compelling experience
+for testing distributed packages with the test data as a separate archive. You
+can of course pack `target/xtest-data` in any other shape or form you prefer.
+When testing a crate archive reverse these steps:
+
+```
+unzip xtest-data.zip
+CARGO_XTEST_DATA_PACK_OBJECTS="$(pwd)/target/xtest-data" cargo test
+```
+
 # Details
 
 ## Usage for crate authors
@@ -60,7 +79,7 @@ The complete interface is not much more complex than the simple version above.
 
 There is one additional detail if you want to check that your crate
 successfully passes the tests on a crate distribution. For this you can
-repurpose the `xtask` of this crate:
+repurpose the `xtask` of this crate as a binary:
 
 ```bash
 cd path/to/xtest-data
@@ -72,18 +91,19 @@ modify your workspace to include the `xtask` folder then you can always execute
 the `xtask` from your own crate.
 
 The xtask will:
-1. Run `cargo package` to create the `.crate` archive. Note that this requires
-   the sources selected for the crate to be unmodified.
-2. Decompress and unpack this archive into a temporary directory.
+1. Run `cargo package` to create the `.crate` archive and accompanying pack
+   directory. Note that this requires the sources selected for the crate to be
+   unmodified.
+2. Stop, if `test` is not selected. Otherwise, decompress and unpack this
+   archive into a temporary directory.
 3. Compile the package with `xtest-data` overrides for local development (see
-   next section). In particular: `CARGO_XTEST_DATA_REPOSITORY_ORIGIN` will
-   point to the selected path as a `file://` url; `CARGO_XTEST_DATA_TMPDIR`
-   will be set to a temporary directory create within the `target` directory;
-   `CARGO_TARGET_DIR` will also point to the target directory.
+   next section). In particular: `CARGO_XTEST_DATA_PACK_OBJECTS` will point to
+   the pack output directory; `CARGO_XTEST_DATA_TMPDIR` will be set to a
+   temporary directory create within the `target` directory; `CARGO_TARGET_DIR`
+   will also point to the target directory.
 
 This keeps the `rustc` cached data around while otherwise simulating a fresh
 distribution compilation.
-
 
 ## Customization points for packagers
 
@@ -97,13 +117,20 @@ In a non-source setting (i.e. when running from a downloaded crate) the
 
 * `CARGO_XTEST_DATA_TMPDIR` (fallback: `TMPDIR`) is required to be set when any
   of the tests are _NOT_ integration tests.
+* `CARGO_XTEST_DATA_PACK_OBJECTS`: A directory for git pack objects (see `man
+  git pack-objects`). Pack files are written to this directory when running
+  tests from source, and read from this directory when running tests from a
+  `.crate` archive. These are the same objects that would be fetched when doing
+  a shallow  and sparse clone from the source repository.
 * `CARGO_XTEST_DATA_REPOSITORY_ORIGIN`: Can be set to override the Git url that
-  is used as the source repository. Otherwise the repository from the package
-  data is used.
-* `CARGO_XTEST_DATA_FETCH`: If set to `1`, `yes`, `true` then it will try to
-  make a network connection, fetch data from the source repository. If _not_
-  set then it will print a plan of what it intended to do and which files it
-  would request (as git pathspecs) from which commit, and then panic.
+  is used as the fallback source repository. Only used when no pack object
+  directory is provided. By default, set to the repository from the package
+  manifest.
+* `CARGO_XTEST_DATA_FETCH`: Only used when no pack object directory is
+  provided. If set to `1`, `yes`, `true` then it will try to make a network
+  connection, fetch data from the source repository. If _not_ set then it will
+  print a plan of what it intended to do and which files it would request (as
+  git pathspecs) from which commit, and then panic.
 
 ## How it works
 
@@ -126,6 +153,8 @@ to download and checkout requested files to the relative location.
   small amount of dependencies. (Any patches to minimize this further are
   welcome. We might add a toggle to disable locks and its dependencies if
   non-parallel test execution is good enough?)
+* A full offline mode with minimal auxiliary source archives is provided.
+  Building the crate without executing tests does not require any test data.
 * The `xtask` tool can be used for local development and CI (we use it in our
   own pipeline for example). It's not strongly linked to the implementation,
   just the public interface, so it is possible to replace it with your own

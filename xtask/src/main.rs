@@ -16,6 +16,18 @@ fn main() -> Result<(), LocatedError> {
     let target = Target::from_current_dir()?;
     let filename = target.expected_crate_name();
 
+    let packdir = repo
+        .canonicalize()
+        .map_err(anchor_error())?
+        .join("target")
+        .join("xtest-data");
+
+    Command::new(CARGO)
+        .args(["test"])
+        .env("CARGO_XTEST_DATA_PACK_OBJECTS", &packdir)
+        .success()
+        .map_err(anchor_error())?;
+
     Command::new(CARGO)
         .args(["package", "--no-verify"])
         .success()
@@ -63,11 +75,7 @@ fn main() -> Result<(), LocatedError> {
         .args(["test", "--no-fail-fast", "--release", "--", "--nocapture"])
         .env("CARGO_TARGET_DIR", repo.join("target"))
         .env("CARGO_XTEST_DATA_TMPDIR", &tmp)
-        .env("CARGO_XTEST_DATA_FETCH", "yes")
-        .env(
-            "CARGO_XTEST_DATA_REPOSITORY_ORIGIN",
-            format!("file://{}", repo.display()),
-        )
+        .env("CARGO_XTEST_DATA_PACK_OBJECTS", &packdir)
         .success()
         .map_err(anchor_error())?;
 
@@ -75,6 +83,7 @@ fn main() -> Result<(), LocatedError> {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct LocatedError {
     location: &'static std::panic::Location<'static>,
     inner: io::Error,

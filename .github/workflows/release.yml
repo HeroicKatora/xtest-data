@@ -1,0 +1,25 @@
+name: Releases
+on: 
+  push:
+    tags:
+    - 'v*'
+jobs:
+  test-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install Rust stable
+      uses: actions-rs/toolchain@v1
+      with:
+          toolchain: stable
+          override: true
+    - name: Create test data
+      run: CARGO_XTEST_DATA_PACK_OBJECTS="$(pwd)/target/xtest-data" cargo test
+    - name: Pack data
+      run: tar czf xtest-data.tar.gz target/xtest-data
+    - uses: ncipollo/release-action@v1
+      with:
+        artifacts: "xtest-data.tar.gz"
+        token: ${{ secrets.GITHUB_TOKEN }}

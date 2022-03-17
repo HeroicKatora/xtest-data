@@ -137,6 +137,8 @@ pub struct Setup<'paths> {
     source: Source,
     /// The resources that we store.
     resources: Resources<'paths>,
+    /// A git pack archive with files.
+    pack_objects: Option<OsString>,
 }
 
 /// The options determined from the compile time environment of the crate that called us.
@@ -223,7 +225,8 @@ pub fn _setup(options: EnvOptions) -> Setup<'static> {
 
     let vcs_info_path = Path::new(manifest).join(".cargo_vcs_info.json");
 
-    let source = if vcs_info_path.exists() {
+    let (source, pack_objects);
+    if vcs_info_path.exists() {
         // Allow the override.
         trait GetKey {
             fn get_key(&self, key: &str) -> Option<&Self>;
@@ -268,15 +271,17 @@ pub fn _setup(options: EnvOptions) -> Setup<'static> {
             .expect("This setup must only be called in an integration test or benchmark, or with an explicit TMPDIR")
             .into_owned();
 
-        Source::VcsFromManifest {
+        pack_objects = std::env::var_os("CARGO_XTEST_DATA_PACK_OBJECTS");
+        source = Source::VcsFromManifest {
             commit_id,
             git,
             datadir,
-        }
+        };
     } else {
         // Check that we can recognize tracked files.
         let git = git::Git::new().unwrap_or_else(|mut err| inconclusive(&mut err));
-        Source::Local(git)
+        source = Source::Local(git);
+        pack_objects = std::env::var_os("CARGO_XTEST_DATA_PACK_OBJECTS");
     };
 
     // And finally this must be valid.
@@ -289,6 +294,7 @@ pub fn _setup(options: EnvOptions) -> Setup<'static> {
         manifest,
         source,
         resources: Resources::default(),
+        pack_objects,
     }
 }
 
@@ -367,10 +373,18 @@ impl<'lt> Setup<'lt> {
                 let dir = git::CrateDir::new(self.manifest, &git);
                 let datapath = Path::new(self.manifest);
                 dir.tracked(&git, &mut self.resources.path_specs());
+
+                if let Some(pack_objects) = self.pack_objects {
+                    std::fs::create_dir_all(&pack_objects)
+                        .unwrap_or_else(|mut err| inconclusive(&mut err));
+                    dir.pack_objects(&git, &mut self.resources.path_specs(), pack_objects);
+                }
+
                 map = vec![];
                 self.resources.relative_files.iter().for_each(|path| {
                     map.push(datapath.join(path.as_path()));
                 });
+
                 self.resources
                     .unmanaged
                     .into_iter()
@@ -389,18 +403,24 @@ impl<'lt> Setup<'lt> {
                 let datapath = unique_dir(&datadir, "xtest-data-tree")
                     .unwrap_or_else(|mut err| inconclusive(&mut err));
 
-                git.consent_to_use(
-                    &gitpath,
-                    &datapath,
-                    &origin,
-                    &commit_id,
-                    &mut self.resources.as_paths(),
-                    &mut self.resources.path_specs(),
-                );
+                let shallow;
+                if let Some(pack_objects) = self.pack_objects {
+                    shallow = git.bare(gitpath, &commit_id);
+                    shallow.unpack(&git, &pack_objects);
+                } else {
+                    let origin = git.consent_to_use(
+                        &gitpath,
+                        &datapath,
+                        &origin,
+                        &commit_id,
+                        &mut self.resources.as_paths(),
+                        &mut self.resources.path_specs(),
+                    );
 
-                let shallow = git.shallow_clone(gitpath, origin);
+                    shallow = git.shallow_clone(gitpath, &origin);
+                    shallow.fetch(&git, &commit_id, &origin);
+                }
 
-                shallow.fetch(&git, &commit_id);
                 shallow.checkout(
                     &git,
                     &datapath,
@@ -505,6 +525,7 @@ fn unique_dir(base: &Path, prefix: &str) -> Result<PathBuf, std::io::Error> {
 }
 
 #[cold]
+#[track_caller]
 fn inconclusive(err: &mut dyn std::fmt::Display) -> ! {
     eprintln!("xtest-data failed to setup.");
     eprintln!("Information: {}", err);
