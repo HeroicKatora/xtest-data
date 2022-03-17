@@ -235,6 +235,10 @@ impl CrateDir {
         } = paths.collect();
         let sparse = self.sparse_rev_list(git, &simple_filter);
 
+        if !complex_paths.is_empty() {
+            inconclusive(&mut "Sorry, paths too complex to pack reliably");
+        }
+
         let mut cmd = self.exec(git);
         cmd.args(["pack-objects"]);
         cmd.arg(Path::new(&pack_name).join("xtest-data"));
