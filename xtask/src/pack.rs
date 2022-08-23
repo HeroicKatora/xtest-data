@@ -1,5 +1,6 @@
 //! Module to create packfile and associated data for a source repository.
-use super::{anchor_error, as_io_error, GoodOutput, LocatedError, Target, CARGO};
+use super::{anchor_error, as_io_error, GoodOutput, LocatedError, CARGO};
+use crate::target::Target;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -60,6 +61,7 @@ pub(crate) fn pack(repo: &Path, target: &Target, tmp: &Path) -> Result<PackedDat
 
     Ok(PackedData {
         vcs_info,
+        // FIXME: depending on Target selection, pack into an archive.
         pack_path: packdir,
         crate_path,
     })
