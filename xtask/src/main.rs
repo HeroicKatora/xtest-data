@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::{env, fs, io};
@@ -78,6 +79,7 @@ fn main() -> Result<(), LocatedError> {
         .env("CARGO_TARGET_DIR", repo.join("target"))
         .env("CARGO_XTEST_DATA_TMPDIR", &tmp)
         .env("CARGO_XTEST_DATA_PACK_OBJECTS", &packdir)
+        .env("RUST_BACKTRACE", "full")
         .success()
         .map_err(anchor_error())?;
 
@@ -101,13 +103,16 @@ struct Target {
     cargo: Metadata,
 }
 
+/// The information available to templates.
 #[derive(Serialize)]
 struct TargetStatic {
     name: String,
     version: String,
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Metadata {
     /// Artifact archival method.
     pack_archive: Option<ArchiveMethod>,
@@ -119,6 +124,7 @@ struct Metadata {
 }
 
 /// Determine how the pack objects are archived.
+#[derive(Debug)]
 enum ArchiveMethod {
     TarGz,
 }
@@ -201,11 +207,19 @@ impl Target {
             env: TargetStatic {
                 name,
                 version,
+                extra: {
+                    let map = package
+                        .as_table()
+                        .ok_or_else(undiagnosed_io_error())
+                        .map_err(anchor_error())?
+                        .clone();
+                    map.into_iter().collect()
+                },
             },
             cargo: Metadata::default(),
         };
 
-        if let Some(meta) = package.get("metadata.xtest-data") {
+        if let Some(meta) = package.get("metadata").and_then(|v| v.get("xtest-data")) {
             target.cargo = Metadata::from_value(meta, &target)?;
         };
 

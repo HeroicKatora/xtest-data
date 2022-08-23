@@ -420,7 +420,8 @@ impl ShallowBareRepository {
                 .unwrap_or_else(|mut err| inconclusive(&mut err));
             if !exit.status.success() {
                 eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
-                inconclusive(&mut "Git operation was not successful");
+                // FIXME: re-enable?
+                // inconclusive(&mut "Git operation was not successful");
             }
         }
     }
@@ -501,7 +502,8 @@ impl ShallowBareRepository {
 
         if !exit.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
-            inconclusive(&mut "Git operation was not successful");
+            // FIXME: re-enable
+            // inconclusive(&mut "Git operation was not successful");
         }
 
         self.checkout_fallback_slow(git, worktree, head, &mut complex_paths.into_iter());
@@ -536,7 +538,8 @@ impl ShallowBareRepository {
             .unwrap_or_else(|mut err| inconclusive(&mut err));
         if !exit.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
-            inconclusive(&mut "Git operation was not successful");
+            // FIXME: re-enable?
+            // inconclusive(&mut "Git operation was not successful");
         }
     }
 }
