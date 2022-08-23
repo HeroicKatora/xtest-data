@@ -460,7 +460,7 @@ impl ShallowBareRepository {
             let mut cmd = self.exec(git);
             cmd.arg("--work-tree");
             cmd.arg(worktree);
-            cmd.args(["sparse-checkout", "set", "--stdin"]);
+            cmd.args(["sparse-checkout", "--no-cone", "set", "--stdin"]);
             cmd.stdin(Stdio::piped());
             let mut running = cmd.spawn()?;
             let stdin = running.stdin.as_mut().expect("Spawned with stdio-piped");

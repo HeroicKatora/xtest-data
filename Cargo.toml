@@ -19,5 +19,22 @@ version = "0.6.1"
 default-features = false
 features = ["std", "tls", "wyrand"]
 
+# See `Readme.md` on meaning.
+#
+# This pre-configured table ensures that other tools can read the information
+# to fetch the archive for us. For example, a packaging-tool such as Debian's
+# standard Rust tooling may automatically generate test deps and archives.
+#
+# Note: the `xtask` will be parsing this, *NOT* the xtest-data crate itself.
+# We merely define some standard options.
+[package.metadata.xtest-data]
+# Method for archiving the pack data.
+pack-archive = "tar:gz"
+# URL template from which to fetch packed file during testing.
+pack-artifact = "{repository}/releases/xtest-data-v{version}/artifacts/xtest-data.tar.gz"
+# Relative path to export data to, and expect pack objects in.
+pack-objects = "target/xtest-data-pack"
+
+
 [workspace]
 members = [".", "xtask"]

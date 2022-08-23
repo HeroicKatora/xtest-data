@@ -1,12 +1,15 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::{env, fs, io};
 
+use serde::Serialize;
 use tempdir::TempDir;
 use toml::Value;
 
 // Use the same host-binary as is building us.
 const CARGO: &'static str = env!("CARGO");
+const GIT: &'static str = "git";
 
 fn main() -> Result<(), LocatedError> {
     let args = Args::from_env().map_err(anchor_error())?;
@@ -16,11 +19,29 @@ fn main() -> Result<(), LocatedError> {
     let target = Target::from_current_dir()?;
     let filename = target.expected_crate_name();
 
-    let packdir = repo
-        .canonicalize()
+    let repo = repo.canonicalize().map_err(anchor_error())?;
+
+    let commit = Command::new(GIT)
+        .arg("--git-dir")
+        .arg(repo.join(".git"))
+        .args([
+            "show",
+            "HEAD",
+            "--oneline",
+            "--summary",
+            "--no-abbrev-commit",
+        ])
+        .output()
         .map_err(anchor_error())?
-        .join("target")
-        .join("xtest-data");
+        .stdout;
+    let commit = commit.split(|&c| c == b' ').next().unwrap();
+    let commit = std::str::from_utf8(commit)
+        .map_err(as_io_error)
+        .map_err(anchor_error())?;
+
+    eprintln!("Using data from: {}", commit);
+
+    let packdir = repo.join("target").join("xtest-data");
 
     Command::new(CARGO)
         .args(["test"])
@@ -29,7 +50,7 @@ fn main() -> Result<(), LocatedError> {
         .map_err(anchor_error())?;
 
     Command::new(CARGO)
-        .args(["package", "--no-verify"])
+        .args(["package", "--allow-dirty", "--no-verify"])
         .success()
         .map_err(anchor_error())?;
 
@@ -45,10 +66,19 @@ fn main() -> Result<(), LocatedError> {
         },
         PathBuf::from,
     );
-    let extracted = tmp.join(target.expected_dir_name());
 
+    let vcs_info = tmp.join(".xtest_vcs_info.json");
+    let vcs_info_data = format!(
+        r#"{{ "git": {{ "sha1": "{}" }}, "path_in_vcs": "" }}"#,
+        commit
+    );
+
+    fs::write(&vcs_info, vcs_info_data).map_err(anchor_error())?;
+
+    let extracted = tmp.join(target.expected_dir_name());
     // Try to remove it but ignore failure.
     let _ = fs::remove_dir_all(&extracted).map_err(anchor_error());
+
     // gunzip -c target/package/xtest-data-0.0.2.crate
     let crate_tar = Command::new("gunzip")
         .arg("-c")
@@ -73,9 +103,24 @@ fn main() -> Result<(), LocatedError> {
     Command::new(CARGO)
         .current_dir(&extracted)
         .args(["test", "--no-fail-fast", "--release", "--", "--nocapture"])
-        .env("CARGO_TARGET_DIR", repo.join("target"))
+        // FIXME! Woah, we may actually have found a caching bug here! When compiling via this
+        // source we got outdated binaries that did not reflect the *dirty* changes introduced in
+        // the source archive?
+        //
+        // ]$ rustc --version --verbose
+        // rustc 1.61.0 (fe5b13d68 2022-05-18)
+        // binary: rustc
+        // commit-hash: fe5b13d681f25ee6474be29d748c65adcd91f69e
+        // commit-date: 2022-05-18
+        // host: x86_64-unknown-linux-gnu
+        // release: 1.61.0
+        // LLVM version: 14.0.0
+        //
+        // Anyways we'd like to share the compilation cache.
+        // .env("CARGO_TARGET_DIR", repo.join("target"))
         .env("CARGO_XTEST_DATA_TMPDIR", &tmp)
         .env("CARGO_XTEST_DATA_PACK_OBJECTS", &packdir)
+        .env("CARGO_XTEST_VCS_INFO", &vcs_info)
         .success()
         .map_err(anchor_error())?;
 
@@ -95,8 +140,34 @@ struct Args {
 }
 
 struct Target {
+    env: TargetStatic,
+    cargo: Metadata,
+}
+
+/// The information available to templates.
+#[derive(Serialize)]
+struct TargetStatic {
     name: String,
     version: String,
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+#[derive(Default, Debug)]
+struct Metadata {
+    /// Artifact archival method.
+    pack_archive: Option<ArchiveMethod>,
+    /// Artifact URL template.
+    pack_artifact: Option<String>,
+    /// Relative path of location for pack objects.
+    /// Suggested: `target/xtest-data` or `target/xtest-data-pack`.
+    pack_objects: Option<String>,
+}
+
+/// Determine how the pack objects are archived.
+#[derive(Debug)]
+enum ArchiveMethod {
+    TarGz,
 }
 
 // A cargo.toml file that defines a workspace.
@@ -151,6 +222,7 @@ impl Target {
         let toml: Value = toml::de::from_slice(&toml)
             .map_err(as_io_error)
             .map_err(anchor_error())?;
+
         let package = toml
             .get("package")
             .ok_or_else(undiagnosed_io_error())
@@ -171,15 +243,103 @@ impl Target {
             .ok_or_else(undiagnosed_io_error())
             .map_err(anchor_error())?
             .to_owned();
-        Ok(Target { name, version })
+
+        let mut target = Target {
+            env: TargetStatic {
+                name,
+                version,
+                extra: {
+                    let map = package
+                        .as_table()
+                        .ok_or_else(undiagnosed_io_error())
+                        .map_err(anchor_error())?
+                        .clone();
+                    map.into_iter().collect()
+                },
+            },
+            cargo: Metadata::default(),
+        };
+
+        if let Some(meta) = package.get("metadata").and_then(|v| v.get("xtest-data")) {
+            target.cargo = Metadata::from_value(meta, &target)?;
+        };
+
+        Ok(target)
     }
 
     pub fn expected_crate_name(&self) -> PathBuf {
-        format!("{}-{}.crate", &self.name, &self.version).into()
+        format!("{}-{}.crate", &self.env.name, &self.env.version).into()
     }
 
     pub fn expected_dir_name(&self) -> PathBuf {
-        format!("{}-{}", &self.name, &self.version).into()
+        format!("{}-{}", &self.env.name, &self.env.version).into()
+    }
+}
+
+impl Metadata {
+    pub fn from_value(val: &Value, target: &Target) -> Result<Self, LocatedError> {
+        let mut table = val
+            .as_table()
+            .ok_or_else(|| {
+                let err =
+                    io::Error::new(io::ErrorKind::Other, "Expected metadata.xtest-data table");
+                anchor_error()(err)
+            })?
+            .clone();
+
+        let mut meta = Metadata::default();
+        let mut template = tinytemplate::TinyTemplate::new();
+        let (artifact_src, object_src);
+
+        if let Some(archive) = table.remove("pack-archive") {
+            match archive.as_str() {
+                Some("tar:gz") => {
+                    meta.pack_archive = Some(ArchiveMethod::TarGz);
+                }
+                _ => {
+                    let err = io::Error::new(io::ErrorKind::Other, "Unknown archive method");
+                    return Err(anchor_error()(err));
+                }
+            }
+        }
+
+        if let Some(artifact) = table.remove("pack-artifact") {
+            if let Some(artifact) = artifact.as_str() {
+                artifact_src = artifact.to_string();
+                let _ = template.add_template("__main__", &artifact_src);
+                let artifact = template
+                    .render("__main__", &target.env)
+                    .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
+                    .map_err(anchor_error())?;
+                meta.pack_artifact = Some(artifact);
+            } else {
+                let err = io::Error::new(
+                    io::ErrorKind::Other,
+                    "Bad value for `pack-artifact`, expected string",
+                );
+                return Err(anchor_error()(err));
+            }
+        }
+
+        if let Some(objects) = table.remove("pack-objects") {
+            if let Some(objects) = objects.as_str() {
+                object_src = objects.to_string();
+                let _ = template.add_template("__main__", &object_src);
+                let objects = template
+                    .render("__main__", &target.env)
+                    .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
+                    .map_err(anchor_error())?;
+                meta.pack_objects = Some(objects);
+            } else {
+                let err = io::Error::new(
+                    io::ErrorKind::Other,
+                    "Bad value for `pack-objects`, expected string",
+                );
+                return Err(anchor_error()(err));
+            }
+        }
+
+        Ok(meta)
     }
 }
 
