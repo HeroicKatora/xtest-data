@@ -223,7 +223,13 @@ pub fn _setup(options: EnvOptions) -> Setup<'static> {
     // restrict running this `setup` function
     let integration_test_tempdir = tmpdir.map(Path::new);
 
-    let vcs_info_path = Path::new(manifest).join(".cargo_vcs_info.json");
+    let vcs_info_path = env::var_os("CARGO_XTEST_VCS_INFO");
+    let force_vcs = vcs_info_path.is_some();
+
+    let vcs_info_path = vcs_info_path.as_ref().map_or_else(
+        || Path::new(manifest).join(".cargo_vcs_info.json"),
+        PathBuf::from,
+    );
 
     let (source, pack_objects);
     if vcs_info_path.exists() {
@@ -277,6 +283,11 @@ pub fn _setup(options: EnvOptions) -> Setup<'static> {
             git,
             datadir,
         };
+    } else if force_vcs {
+        inconclusive(&mut format!(
+            "Expected VCS info at {}",
+            vcs_info_path.display()
+        ));
     } else {
         // Check that we can recognize tracked files.
         let git = git::Git::new().unwrap_or_else(|mut err| inconclusive(&mut err));

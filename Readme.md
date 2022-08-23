@@ -131,6 +131,13 @@ In a non-source setting (i.e. when running from a downloaded crate) the
   connection, fetch data from the source repository. If _not_ set then it will
   print a plan of what it intended to do and which files it would request (as
   git pathspecs) from which commit, and then panic.
+* `CARGO_XTEST_VCS_INFO`: Path to a file with version control information as
+  json, equivalent in structure to cargo's generated VCS information. This will
+  force xtest into VCS mode, where resources are replaced with data from the
+  pack object(s). Can be used to either force crates to supply internal vcs
+  information or to supplement such information. For example, packages
+  generated with `cargo package --allow-dirty` will not include such a file,
+  and this can be used to override with a forced selection.
 
 ## How it works
 
