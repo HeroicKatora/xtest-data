@@ -420,8 +420,7 @@ impl ShallowBareRepository {
                 .unwrap_or_else(|mut err| inconclusive(&mut err));
             if !exit.status.success() {
                 eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
-                // FIXME: re-enable?
-                // inconclusive(&mut "Git operation was not successful");
+                inconclusive(&mut "Git operation was not successful");
             }
         }
     }
@@ -461,7 +460,7 @@ impl ShallowBareRepository {
             let mut cmd = self.exec(git);
             cmd.arg("--work-tree");
             cmd.arg(worktree);
-            cmd.args(["sparse-checkout", "set", "--stdin"]);
+            cmd.args(["sparse-checkout", "--no-cone", "set", "--stdin"]);
             cmd.stdin(Stdio::piped());
             let mut running = cmd.spawn()?;
             let stdin = running.stdin.as_mut().expect("Spawned with stdio-piped");
@@ -502,8 +501,7 @@ impl ShallowBareRepository {
 
         if !exit.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
-            // FIXME: re-enable
-            // inconclusive(&mut "Git operation was not successful");
+            inconclusive(&mut "Git operation was not successful");
         }
 
         self.checkout_fallback_slow(git, worktree, head, &mut complex_paths.into_iter());
@@ -538,8 +536,7 @@ impl ShallowBareRepository {
             .unwrap_or_else(|mut err| inconclusive(&mut err));
         if !exit.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
-            // FIXME: re-enable?
-            // inconclusive(&mut "Git operation was not successful");
+            inconclusive(&mut "Git operation was not successful");
         }
     }
 }
