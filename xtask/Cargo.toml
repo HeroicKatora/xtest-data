@@ -5,8 +5,9 @@ edition = "2018"
 publish = false
 
 [dependencies]
-ureq = "0.7"
+clap = "3"
 serde = { version = "1", features = ["derive"] }
 tempdir = "0.3.7"
 tinytemplate = "1"
 toml = "0.5"
+ureq = "2.5"

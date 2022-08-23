@@ -1,3 +1,5 @@
+mod pack;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -9,50 +11,11 @@ use toml::Value;
 
 // Use the same host-binary as is building us.
 const CARGO: &'static str = env!("CARGO");
-const GIT: &'static str = "git";
 
 fn main() -> Result<(), LocatedError> {
     let args = Args::from_env().map_err(anchor_error())?;
     let repo = &args.repository;
     env::set_current_dir(repo).map_err(anchor_error())?;
-
-    let target = Target::from_current_dir()?;
-    let filename = target.expected_crate_name();
-
-    let repo = repo.canonicalize().map_err(anchor_error())?;
-
-    let commit = Command::new(GIT)
-        .arg("--git-dir")
-        .arg(repo.join(".git"))
-        .args([
-            "show",
-            "HEAD",
-            "--oneline",
-            "--summary",
-            "--no-abbrev-commit",
-        ])
-        .output()
-        .map_err(anchor_error())?
-        .stdout;
-    let commit = commit.split(|&c| c == b' ').next().unwrap();
-    let commit = std::str::from_utf8(commit)
-        .map_err(as_io_error)
-        .map_err(anchor_error())?;
-
-    eprintln!("Using data from: {}", commit);
-
-    let packdir = repo.join("target").join("xtest-data");
-
-    Command::new(CARGO)
-        .args(["test"])
-        .env("CARGO_XTEST_DATA_PACK_OBJECTS", &packdir)
-        .success()
-        .map_err(anchor_error())?;
-
-    Command::new(CARGO)
-        .args(["package", "--allow-dirty", "--no-verify"])
-        .success()
-        .map_err(anchor_error())?;
 
     let mut private_tempdir = None;
     let tmp = env::var_os("TMPDIR").map_or_else(
@@ -67,13 +30,8 @@ fn main() -> Result<(), LocatedError> {
         PathBuf::from,
     );
 
-    let vcs_info = tmp.join(".xtest_vcs_info.json");
-    let vcs_info_data = format!(
-        r#"{{ "git": {{ "sha1": "{}" }}, "path_in_vcs": "" }}"#,
-        commit
-    );
-
-    fs::write(&vcs_info, vcs_info_data).map_err(anchor_error())?;
+    let target = Target::from_current_dir()?;
+    let pack = pack::pack(&repo, &target, &tmp)?;
 
     let extracted = tmp.join(target.expected_dir_name());
     // Try to remove it but ignore failure.
@@ -82,7 +40,7 @@ fn main() -> Result<(), LocatedError> {
     // gunzip -c target/package/xtest-data-0.0.2.crate
     let crate_tar = Command::new("gunzip")
         .arg("-c")
-        .arg(Path::new("target/package").join(filename))
+        .arg(pack.crate_path)
         .output()
         .map_err(anchor_error())?
         .stdout;
@@ -119,8 +77,8 @@ fn main() -> Result<(), LocatedError> {
         // Anyways we'd like to share the compilation cache.
         // .env("CARGO_TARGET_DIR", repo.join("target"))
         .env("CARGO_XTEST_DATA_TMPDIR", &tmp)
-        .env("CARGO_XTEST_DATA_PACK_OBJECTS", &packdir)
-        .env("CARGO_XTEST_VCS_INFO", &vcs_info)
+        .env("CARGO_XTEST_DATA_PACK_OBJECTS", &pack.pack_path)
+        .env("CARGO_XTEST_VCS_INFO", &pack.vcs_info)
         .success()
         .map_err(anchor_error())?;
 
