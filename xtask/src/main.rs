@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::{env, fs, io};
 
+use serde::Serialize;
 use tempdir::TempDir;
 use toml::Value;
 
@@ -45,10 +46,11 @@ fn main() -> Result<(), LocatedError> {
         },
         PathBuf::from,
     );
-    let extracted = tmp.join(target.expected_dir_name());
 
+    let extracted = tmp.join(target.expected_dir_name());
     // Try to remove it but ignore failure.
     let _ = fs::remove_dir_all(&extracted).map_err(anchor_error());
+
     // gunzip -c target/package/xtest-data-0.0.2.crate
     let crate_tar = Command::new("gunzip")
         .arg("-c")
@@ -95,8 +97,30 @@ struct Args {
 }
 
 struct Target {
+    env: TargetStatic,
+    cargo: Metadata,
+}
+
+#[derive(Serialize)]
+struct TargetStatic {
     name: String,
     version: String,
+}
+
+#[derive(Default)]
+struct Metadata {
+    /// Artifact archival method.
+    pack_archive: Option<ArchiveMethod>,
+    /// Artifact URL template.
+    pack_artifact: Option<String>,
+    /// Relative path of location for pack objects.
+    /// Suggested: `target/xtest-data` or `target/xtest-data-pack`.
+    pack_objects: Option<String>,
+}
+
+/// Determine how the pack objects are archived.
+enum ArchiveMethod {
+    TarGz,
 }
 
 // A cargo.toml file that defines a workspace.
@@ -151,6 +175,7 @@ impl Target {
         let toml: Value = toml::de::from_slice(&toml)
             .map_err(as_io_error)
             .map_err(anchor_error())?;
+
         let package = toml
             .get("package")
             .ok_or_else(undiagnosed_io_error())
@@ -171,15 +196,95 @@ impl Target {
             .ok_or_else(undiagnosed_io_error())
             .map_err(anchor_error())?
             .to_owned();
-        Ok(Target { name, version })
+
+        let mut target = Target {
+            env: TargetStatic {
+                name,
+                version,
+            },
+            cargo: Metadata::default(),
+        };
+
+        if let Some(meta) = package.get("metadata.xtest-data") {
+            target.cargo = Metadata::from_value(meta, &target)?;
+        };
+
+        Ok(target)
     }
 
     pub fn expected_crate_name(&self) -> PathBuf {
-        format!("{}-{}.crate", &self.name, &self.version).into()
+        format!("{}-{}.crate", &self.env.name, &self.env.version).into()
     }
 
     pub fn expected_dir_name(&self) -> PathBuf {
-        format!("{}-{}", &self.name, &self.version).into()
+        format!("{}-{}", &self.env.name, &self.env.version).into()
+    }
+}
+
+impl Metadata {
+    pub fn from_value(val: &Value, target: &Target) -> Result<Self, LocatedError> {
+        let mut table = val
+            .as_table()
+            .ok_or_else(|| {
+                let err =
+                    io::Error::new(io::ErrorKind::Other, "Expected metadata.xtest-data table");
+                anchor_error()(err)
+            })?
+            .clone();
+
+        let mut meta = Metadata::default();
+        let mut template = tinytemplate::TinyTemplate::new();
+        let (artifact_src, object_src);
+
+        if let Some(archive) = table.remove("pack-archive") {
+            match archive.as_str() {
+                Some("tar:gz") => {
+                    meta.pack_archive = Some(ArchiveMethod::TarGz);
+                }
+                _ => {
+                    let err = io::Error::new(io::ErrorKind::Other, "Unknown archive method");
+                    return Err(anchor_error()(err));
+                }
+            }
+        }
+
+        if let Some(artifact) = table.remove("pack-artifact") {
+            if let Some(artifact) = artifact.as_str() {
+                artifact_src = artifact.to_string();
+                let _ = template.add_template("__main__", &artifact_src);
+                let artifact = template
+                    .render("__main__", &target.env)
+                    .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
+                    .map_err(anchor_error())?;
+                meta.pack_artifact = Some(artifact);
+            } else {
+                let err = io::Error::new(
+                    io::ErrorKind::Other,
+                    "Bad value for `pack-artifact`, expected string",
+                );
+                return Err(anchor_error()(err));
+            }
+        }
+
+        if let Some(objects) = table.remove("pack-objects") {
+            if let Some(objects) = objects.as_str() {
+                object_src = objects.to_string();
+                let _ = template.add_template("__main__", &object_src);
+                let objects = template
+                    .render("__main__", &target.env)
+                    .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
+                    .map_err(anchor_error())?;
+                meta.pack_objects = Some(objects);
+            } else {
+                let err = io::Error::new(
+                    io::ErrorKind::Other,
+                    "Bad value for `pack-objects`, expected string",
+                );
+                return Err(anchor_error()(err));
+            }
+        }
+
+        Ok(meta)
     }
 }
 
