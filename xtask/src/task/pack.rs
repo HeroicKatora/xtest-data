@@ -22,11 +22,13 @@ pub(crate) fn pack(
     tmp: &Path,
 ) -> Result<PackedData, LocatedError> {
     let filename = target.expected_crate_name();
-    let repo = repo.cargo
+    let repo = repo
+        .cargo
         .parent()
         .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::Other))
         .map_err(anchor_error())?
-        .canonicalize().map_err(anchor_error())?;
+        .canonicalize()
+        .map_err(anchor_error())?;
     // FIXME: read cargo metadata for sub folder?
     let crate_path = Path::new("target/package").join(filename);
 
@@ -72,15 +74,9 @@ pub(crate) fn pack(
 
     Ok(PackedData {
         // FIXME: do not overwrite on `!target.allow_dirty`.
-        vcs_info: VcsInfo::Overwrite {
-            path: vcs_info,
-        },
+        vcs_info: VcsInfo::Overwrite { path: vcs_info },
         // FIXME: depending on Target selection, pack into an archive.
-        pack_path: UnpackedArchive  {
-            path: packdir,
-        },
-        crate_: CrateSource {
-            path: crate_path,
-        },
+        pack_path: UnpackedArchive { path: packdir },
+        crate_: CrateSource { path: crate_path },
     })
 }

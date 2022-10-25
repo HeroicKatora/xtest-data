@@ -26,10 +26,7 @@ impl GoodOutput for Command {
     fn mute_stdout(&mut self) {
         // Reconfigure stdout to a null handle unless we can do better.
         self.stdout({
-            #[cfg(not(any(
-                target_family = "unix",
-                target_family = "windows",
-            )))]
+            #[cfg(not(any(target_family = "unix", target_family = "windows",)))]
             {
                 Stdio::null()
             }

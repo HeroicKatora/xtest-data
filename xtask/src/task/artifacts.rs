@@ -64,9 +64,7 @@ pub fn pack(
     let artifact = tmp.join("artifact.tar.gz");
     let () = std::fs::write(&artifact, &crate_gz).map_err(anchor_error())?;
 
-    Ok(PackedArtifacts {
-        path: artifact,
-    })
+    Ok(PackedArtifacts { path: artifact })
 }
 
 /// Turn one artifact file into a source directory of artifacts.

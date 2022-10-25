@@ -14,7 +14,7 @@ pub enum XtaskCommand {
     /// - Unpack the crate into a temporary location
     /// - Prepare the test data from a file
     /// - Run tests with the test data
-    Ci {
+    Test {
         /// The path to the source repository.
         #[arg(default_value = ".")]
         path: PathBuf,
@@ -60,7 +60,7 @@ pub enum XtaskCommand {
     /// Test a crate archive.
     ///
     /// This command may download the test archive data.
-    Test {
+    CrateTest {
         /// A path to a `.crate` archive, or an unpacked version.
         ///
         /// The relevant difference to a source repository is the presence of a `.cargo_vcs_info`

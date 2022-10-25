@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 
-use crate::{target::{LocalSource, Target}, util::{LocatedError, anchor_error}};
 use super::artifacts::PackedArtifacts;
+use crate::{
+    target::{LocalSource, Target},
+    util::{anchor_error, LocatedError},
+};
 
 pub fn write_artifacts(
     source: &LocalSource,
