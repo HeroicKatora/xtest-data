@@ -1,21 +1,37 @@
 //! Parse a target's configuration.
+use crate::util::GoodOutput;
+
 use super::{anchor_error, as_io_error, undiagnosed_io_error, LocatedError};
 
 use std::collections::HashMap;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use serde::Serialize;
 use toml::Value;
 
+/// A local file tree containing a source folder.
+pub struct LocalSource {
+    pub cargo: PathBuf,
+    /// Allow this source tree to be dirty? May be best-effort.
+    pub dirty: bool,
+}
+
+/// A local path to a `.crate` archive.
+pub struct CrateSource {
+    pub path: PathBuf,
+}
+
 /// Full target information.
+#[derive(Debug)]
 pub struct Target {
     pub env: TargetStatic,
     pub cargo: Metadata,
 }
 
 /// The information available to templates.
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct TargetStatic {
     pub name: String,
     pub version: String,
@@ -41,9 +57,43 @@ pub enum ArchiveMethod {
     TarGz,
 }
 
+impl LocalSource {
+    pub fn with_simple_repository(path: &Path) -> Self {
+        LocalSource {
+            cargo: path.join("Cargo.toml"),
+            dirty: false,
+        }
+    }
+
+    pub fn with_dirty(self, dirty: bool) -> Self {
+        LocalSource { dirty, ..self }
+    }
+}
+
 impl Target {
-    pub(crate) fn from_current_dir() -> Result<Self, LocatedError> {
-        let toml = std::fs::read("Cargo.toml").map_err(anchor_error())?;
+    pub(crate) fn from_dir(spec: &LocalSource) -> Result<Self, LocatedError> {
+        let toml = std::fs::read(&spec.cargo).map_err(anchor_error())?;
+        Self::from_toml(&toml)
+    }
+
+    pub(crate) fn from_crate(archive: &CrateSource) -> Result<Self, LocatedError> {
+        let crate_tar = Command::new("gunzip")
+            .arg("-c")
+            .arg(&archive.path)
+            .output()
+            .map_err(anchor_error())?
+            .stdout;
+
+        let toml = Command::new("tar")
+            .arg("-O")
+            .args(["--extract", "--file", "-", "--wildcards", "*/Cargo.toml"])
+            .input_output(&crate_tar)
+            .map_err(anchor_error())?;
+
+        Self::from_toml(&toml.stdout)
+    }
+
+    pub(crate) fn from_toml(toml: &[u8]) -> Result<Self, LocatedError> {
         let toml: Value = toml::de::from_slice(&toml)
             .map_err(as_io_error)
             .map_err(anchor_error())?;

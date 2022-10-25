@@ -1,26 +1,75 @@
 mod args;
-mod pack;
 mod target;
+mod task;
 mod util;
 
 use self::args::XtaskCommand;
-use self::util::{anchor_error, as_io_error, undiagnosed_io_error, GoodOutput, LocatedError};
+use self::util::{anchor_error, as_io_error, undiagnosed_io_error, LocatedError};
 
 use std::path::PathBuf;
-use std::process::Command;
 use std::{env, fs};
 
+use clap::Parser;
 use tempdir::TempDir;
 
 // Use the same host-binary as is building us.
 const CARGO: &'static str = env!("CARGO");
 
 fn main() -> Result<(), LocatedError> {
-    let args = args::Args::from_env().map_err(anchor_error())?;
-    let repo = &args.repository;
-
     let mut private_tempdir = None;
-    let tmp = env::var_os("TMPDIR").map_or_else(
+    match XtaskCommand::parse() {
+        XtaskCommand::Ci { path, allow_dirty } => {
+            let source = target::LocalSource::with_simple_repository(&path).with_dirty(allow_dirty);
+            let target = target::Target::from_dir(&source)?;
+
+            let tmp = mk_tmpdir(&mut private_tempdir);
+            let packed = task::pack::pack(&source, &target, &tmp)?;
+
+            let test = task::test::test(&packed.crate_, &target, &packed, &tmp)?;
+            eprintln!("{:?}", packed.pack_path);
+            Ok(())
+        }
+        XtaskCommand::Prepare { path, allow_dirty } => {
+            let source = target::LocalSource::with_simple_repository(&path).with_dirty(allow_dirty);
+            let target = target::Target::from_dir(&source)?;
+
+            let tmp = mk_tmpdir(&mut private_tempdir);
+            let packed = task::pack::pack(&source, &target, &tmp)?;
+
+            let archive = task::pack_archive::pack(&packed, &target, &tmp)?;
+            // FIXME: print instructions
+            eprintln!("{:?}", packed.pack_path);
+            Ok(())
+        }
+        XtaskCommand::Test {
+            path,
+            pack_artifact,
+        } => {
+            let source = target::CrateSource {
+                path: path.to_owned(),
+            };
+
+            let target = target::Target::from_crate(&source)?;
+            let tmp = mk_tmpdir(&mut private_tempdir);
+
+            let archive = match pack_artifact {
+                None => {
+                    todo!("Unimplemented function signature: {:x}", task::dl::download as usize);
+                },
+                // FIXME(clean code): we shouldn't build something from `task` but rather have the
+                // task return an agreed-on interface data type.
+                Some(artifact) => task::pack_archive::PackArchive {
+                    path: artifact.to_owned(),
+                },
+            };
+
+            todo!()
+        }
+    }
+}
+
+fn mk_tmpdir(private_tempdir: &mut Option<TempDir>) -> PathBuf {
+    env::var_os("TMPDIR").map_or_else(
         || {
             let temp =
                 TempDir::new_in("target", "xtest-data-").expect("to create a temporary directory");
@@ -30,62 +79,7 @@ fn main() -> Result<(), LocatedError> {
             temp.path().to_owned()
         },
         PathBuf::from,
-    );
-
-    env::set_current_dir(repo).map_err(anchor_error())?;
-    let target = target::Target::from_current_dir()?;
-    let pack = pack::pack(&repo, &target, &tmp)?;
-
-    let extracted = tmp.join(target.expected_dir_name());
-    // Try to remove it but ignore failure.
-    let _ = fs::remove_dir_all(&extracted).map_err(anchor_error());
-
-    // gunzip -c target/package/xtest-data-0.0.2.crate
-    let crate_tar = Command::new("gunzip")
-        .arg("-c")
-        .arg(pack.crate_path)
-        .output()
-        .map_err(anchor_error())?
-        .stdout;
-
-    // tar -C /tmp --extract --file -
-    Command::new("tar")
-        .arg("-C")
-        .arg(&tmp)
-        .args(["--extract", "--file", "-"])
-        .input_output(&crate_tar)
-        .map_err(anchor_error())?;
-
-    if !args.test {
-        return Ok(());
-    }
-
-    // TMPDIR=/tmp CARGO_XTEST_DATA_FETCH=1 cargo test  -- --nocapture
-    Command::new(CARGO)
-        .current_dir(&extracted)
-        .args(["test", "--no-fail-fast", "--release", "--", "--nocapture"])
-        // FIXME! Woah, we may actually have found a caching bug here! When compiling via this
-        // source we got outdated binaries that did not reflect the *dirty* changes introduced in
-        // the source archive?
-        //
-        // ]$ rustc --version --verbose
-        // rustc 1.61.0 (fe5b13d68 2022-05-18)
-        // binary: rustc
-        // commit-hash: fe5b13d681f25ee6474be29d748c65adcd91f69e
-        // commit-date: 2022-05-18
-        // host: x86_64-unknown-linux-gnu
-        // release: 1.61.0
-        // LLVM version: 14.0.0
-        //
-        // Anyways we'd like to share the compilation cache.
-        // .env("CARGO_TARGET_DIR", repo.join("target"))
-        .env("CARGO_XTEST_DATA_TMPDIR", &tmp)
-        .env("CARGO_XTEST_DATA_PACK_OBJECTS", &pack.pack_path)
-        .env("CARGO_XTEST_VCS_INFO", &pack.vcs_info)
-        .success()
-        .map_err(anchor_error())?;
-
-    Ok(())
+    )
 }
 
 // A cargo.toml file that defines a workspace.

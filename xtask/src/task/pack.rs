@@ -1,21 +1,30 @@
 //! Module to create packfile and associated data for a source repository.
-use super::{anchor_error, as_io_error, GoodOutput, LocatedError, CARGO};
-use crate::target::Target;
+use crate::target::{CrateSource, LocalSource, Target};
+use crate::util::{anchor_error, as_io_error, GoodOutput, LocatedError};
+use crate::CARGO;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub(crate) struct PackedData {
+pub struct PackedData {
     pub vcs_info: PathBuf,
     pub pack_path: PathBuf,
-    pub crate_path: PathBuf,
+    pub crate_: CrateSource,
 }
 
 const GIT: &'static str = "git";
 
-pub(crate) fn pack(repo: &Path, target: &Target, tmp: &Path) -> Result<PackedData, LocatedError> {
+pub(crate) fn pack(
+    repo: &LocalSource,
+    target: &Target,
+    tmp: &Path,
+) -> Result<PackedData, LocatedError> {
     let filename = target.expected_crate_name();
-    let repo = repo.canonicalize().map_err(anchor_error())?;
+    let repo = repo.cargo
+        .parent()
+        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::Other))
+        .map_err(anchor_error())?
+        .canonicalize().map_err(anchor_error())?;
     // FIXME: read cargo metadata for sub folder?
     let crate_path = Path::new("target/package").join(filename);
 
@@ -63,6 +72,8 @@ pub(crate) fn pack(repo: &Path, target: &Target, tmp: &Path) -> Result<PackedDat
         vcs_info,
         // FIXME: depending on Target selection, pack into an archive.
         pack_path: packdir,
-        crate_path,
+        crate_: CrateSource {
+            path: crate_path,
+        },
     })
 }

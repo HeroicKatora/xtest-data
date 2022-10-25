@@ -61,6 +61,13 @@ pub enum XtaskCommand {
         /// The path to the source repository.
         #[arg(default_value = ".")]
         path: PathBuf,
+        /// If we should allow a dirty repository.
+        ///
+        /// This will fail to do the right thing if any test data is dirty. Unlike cargo, this
+        /// _will_ write a custom `vcs_info` file to use. However, all test data must a reachable
+        /// within the tree given by the current VCS (otherwise it wouldn't be part of the pack).
+        #[arg(long, default_value = "false")]
+        allow_dirty: bool,
     },
     /// Pack the source data, but do not run the full integration test.
     ///
@@ -76,6 +83,7 @@ pub enum XtaskCommand {
         /// This will fail to do the right thing if any test data is dirty. Unlike cargo, this
         /// _will_ write a custom `vcs_info` file to use. However, all test data must a reachable
         /// within the tree given by the current VCS (otherwise it wouldn't be part of the pack).
+        #[arg(long, default_value = "false")]
         allow_dirty: bool,
     },
     /// Test a crate archive.
