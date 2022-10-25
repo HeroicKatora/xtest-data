@@ -25,7 +25,14 @@ fn main() -> Result<(), LocatedError> {
             let tmp = mk_tmpdir(&mut private_tempdir);
             let packed = task::pack::pack(&source, &target, &tmp)?;
 
-            let test = task::test::test(&packed.crate_, &target, &packed, &tmp)?;
+            let test = task::test::test(
+                &packed.crate_,
+                &target,
+                &packed.pack_path,
+                &packed.vcs_info,
+                &tmp,
+            )?;
+
             eprintln!("{:?}", packed.pack_path);
             Ok(())
         }
@@ -36,7 +43,7 @@ fn main() -> Result<(), LocatedError> {
             let tmp = mk_tmpdir(&mut private_tempdir);
             let packed = task::pack::pack(&source, &target, &tmp)?;
 
-            let archive = task::pack_archive::pack(&packed, &target, &tmp)?;
+            let archive = task::pack_archive::pack(&packed.pack_path, &target, &tmp)?;
             // FIXME: print instructions
             eprintln!("{:?}", packed.pack_path);
             Ok(())
@@ -54,11 +61,12 @@ fn main() -> Result<(), LocatedError> {
 
             let archive = match pack_artifact {
                 None => {
-                    todo!("Unimplemented function signature: {:x}", task::dl::download as usize);
-                },
+                    let download = task::dl::download(&target, &tmp)?;
+                    download.artifact
+                }
                 // FIXME(clean code): we shouldn't build something from `task` but rather have the
                 // task return an agreed-on interface data type.
-                Some(artifact) => task::pack_archive::PackArchive {
+                Some(artifact) => task::pack_archive::PackedArtifacts {
                     path: artifact.to_owned(),
                 },
             };

@@ -1,14 +1,16 @@
 //! Module to create packfile and associated data for a source repository.
-use crate::target::{CrateSource, LocalSource, Target};
+use crate::target::{CrateSource, LocalSource, Target, VcsInfo};
 use crate::util::{anchor_error, as_io_error, GoodOutput, LocatedError};
 use crate::CARGO;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
+use super::pack_archive::UnpackedArchive;
+
 pub struct PackedData {
-    pub vcs_info: PathBuf,
-    pub pack_path: PathBuf,
+    pub vcs_info: VcsInfo,
+    pub pack_path: UnpackedArchive,
     pub crate_: CrateSource,
 }
 
@@ -69,9 +71,14 @@ pub(crate) fn pack(
     std::fs::write(&vcs_info, vcs_info_data).map_err(anchor_error())?;
 
     Ok(PackedData {
-        vcs_info,
+        // FIXME: do not overwrite on `!target.allow_dirty`.
+        vcs_info: VcsInfo::Overwrite {
+            path: vcs_info,
+        },
         // FIXME: depending on Target selection, pack into an archive.
-        pack_path: packdir,
+        pack_path: UnpackedArchive  {
+            path: packdir,
+        },
         crate_: CrateSource {
             path: crate_path,
         },

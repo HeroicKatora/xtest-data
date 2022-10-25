@@ -1,10 +1,10 @@
 use std::{path::Path, process::Command};
 
-use crate::target::{CrateSource, Target};
+use crate::target::{CrateSource, Target, VcsInfo};
 use crate::util::{anchor_error, GoodOutput, LocatedError};
 use crate::CARGO;
 
-use super::pack::PackedData;
+use super::pack_archive::UnpackedArchive;
 
 #[derive(Debug)]
 pub struct TestResult {}
@@ -13,7 +13,8 @@ pub fn test(
     crate_: &CrateSource,
     target: &Target,
     // FIXME: relax to not use `PackedData` but an optional vcs override and pack path.
-    pack: &PackedData,
+    pack: &UnpackedArchive,
+    vcs_info: &VcsInfo,
     tmp: &Path,
 ) -> Result<TestResult, LocatedError> {
     let extracted = tmp.join(target.expected_dir_name());
@@ -23,7 +24,7 @@ pub fn test(
     // gunzip -c target/package/xtest-data-0.0.2.crate
     let crate_tar = Command::new("gunzip")
         .arg("-c")
-        .arg(&pack.crate_.path)
+        .arg(&crate_.path)
         .output()
         .map_err(anchor_error())?
         .stdout;
@@ -56,8 +57,14 @@ pub fn test(
         // Anyways we'd like to share the compilation cache.
         // .env("CARGO_TARGET_DIR", repo.join("target"))
         .env("CARGO_XTEST_DATA_TMPDIR", &tmp)
-        .env("CARGO_XTEST_DATA_PACK_OBJECTS", &pack.pack_path)
-        .env("CARGO_XTEST_VCS_INFO", &pack.vcs_info)
+        .env("CARGO_XTEST_DATA_PACK_OBJECTS", &pack.path)
+        .envs({
+            if let VcsInfo::Overwrite { path } = vcs_info {
+                Some(("CARGO_XTEST_VCS_INFO", path))
+            } else {
+                None
+            }
+        })
         .success()
         .map_err(anchor_error())?;
 

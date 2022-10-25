@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::io;
 use std::process::{Command, Output, Stdio};
 
@@ -78,7 +79,17 @@ where
 /// Wrap the errors in such a way that we can figure out where they came from.
 /// It's kind of amazing that this is stable o_o
 #[track_caller]
-pub fn anchor_error() -> impl FnMut(io::Error) -> LocatedError {
+pub fn anchor_error<E: Error + Send + Sync + 'static>() -> impl FnMut(E) -> LocatedError {
     let location = std::panic::Location::caller();
-    move |inner| LocatedError { location, inner }
+    move |inner| if <dyn core::any::Any>::is::<io::Error>(&inner) {
+        LocatedError {
+            location,
+            inner: *Box::<dyn core::any::Any>::downcast::<io::Error>(Box::new(inner)).unwrap(),
+        }
+    } else {
+        LocatedError {
+            location,
+            inner: std::io::Error::new(std::io::ErrorKind::Other, inner),
+        }
+    }
 }

@@ -23,6 +23,13 @@ pub struct CrateSource {
     pub path: PathBuf,
 }
 
+pub enum VcsInfo {
+    FromCrate,
+    Overwrite {
+        path: PathBuf,
+    },
+}
+
 /// Full target information.
 #[derive(Debug)]
 pub struct Target {
