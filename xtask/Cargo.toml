@@ -3,9 +3,10 @@ name = "xtask"
 version = "0.0.0"
 edition = "2018"
 publish = false
+resolver = "2"
 
 [dependencies]
-clap = "3"
+clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 tempdir = "0.3.7"
 tinytemplate = "1"

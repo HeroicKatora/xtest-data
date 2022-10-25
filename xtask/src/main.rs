@@ -3,6 +3,7 @@ mod pack;
 mod target;
 mod util;
 
+use self::args::XtaskCommand;
 use self::util::{anchor_error, as_io_error, undiagnosed_io_error, GoodOutput, LocatedError};
 
 use std::path::PathBuf;
