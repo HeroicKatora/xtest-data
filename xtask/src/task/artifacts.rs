@@ -46,6 +46,7 @@ pub fn pack(
     // Invert: tar -C /tmp --extract --file -
     let create_tar = Command::new("tar")
         .args(["--create", "--file", "-"])
+        .args(["--xform", "s//target\\/xtest-data\\//"])
         .arg("-C")
         .arg(&data.path)
         .arg(".")
@@ -93,6 +94,7 @@ pub fn unpack(
 
     // tar -C /tmp --extract --file -
     Command::new("tar")
+        .args(["--strip-components", "2"])
         .arg("-C")
         .arg(&target)
         .args(["--extract", "--file", "-"])

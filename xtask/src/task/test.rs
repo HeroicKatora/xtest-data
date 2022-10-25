@@ -4,7 +4,7 @@ use crate::target::{CrateSource, Target, VcsInfo};
 use crate::util::{anchor_error, GoodOutput, LocatedError};
 use crate::CARGO;
 
-use super::pack_archive::UnpackedArchive;
+use super::artifacts::UnpackedArchive;
 
 #[derive(Debug)]
 pub struct TestResult {}

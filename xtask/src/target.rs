@@ -75,6 +75,11 @@ impl LocalSource {
     pub fn with_dirty(self, dirty: bool) -> Self {
         LocalSource { dirty, ..self }
     }
+
+    pub fn target_directory(&self, _: &Target) -> PathBuf {
+        // FIXME: use metadata for actual target directory.
+        self.cargo.parent().unwrap().join("target/xtest-data")
+    }
 }
 
 impl Target {

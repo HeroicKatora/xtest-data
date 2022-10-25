@@ -7,7 +7,7 @@ use crate::{
     util::{anchor_error, LocatedError},
 };
 
-use super::pack_archive::PackedArtifacts;
+use super::artifacts::PackedArtifacts;
 
 pub struct Download {
     /// FIXME: change this type to a shared one?

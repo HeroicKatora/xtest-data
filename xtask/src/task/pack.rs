@@ -6,7 +6,7 @@ use crate::CARGO;
 use std::path::Path;
 use std::process::Command;
 
-use super::pack_archive::UnpackedArchive;
+use super::artifacts::UnpackedArchive;
 
 pub struct PackedData {
     pub vcs_info: VcsInfo,

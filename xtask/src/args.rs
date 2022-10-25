@@ -1,49 +1,6 @@
-use super::undiagnosed_io_error;
+use std::path::PathBuf;
+
 use clap::Parser;
-
-use std::path::{Path, PathBuf};
-use std::{env, io};
-
-pub struct Args {
-    pub test: bool,
-    pub repository: PathBuf,
-}
-
-impl Args {
-    pub(crate) fn from_env() -> Result<Self, io::Error> {
-        let mut args = env::args().skip(1);
-        let test;
-        let mut repository = None;
-
-        loop {
-            match args.next().as_ref().map(String::as_str) {
-                None => panic!("No command given"),
-                Some("--path") => {
-                    let argument = args.next().expect("Missing argument to `--path`");
-                    let canonical = Path::new(&argument).canonicalize()?;
-                    repository = Some(canonical);
-                }
-                Some("test") => {
-                    test = true;
-                    break;
-                }
-                Some("prepare") => {
-                    test = false;
-                    break;
-                }
-                _ => panic!("Invalid command given"),
-            }
-        }
-
-        let default_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .ok_or_else(undiagnosed_io_error())?;
-
-        let repository = repository.map_or_else(|| default_path.to_owned(), PathBuf::from);
-
-        Ok(Args { test, repository })
-    }
-}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -74,7 +31,7 @@ pub enum XtaskCommand {
     /// This will only create the pack archive according to the instructions but it will not re-run
     /// the full test suite on a cleanroom unpack of the archive.
     #[command(alias = "pack")]
-    Prepare {
+    Package {
         /// The path to the source repository.
         #[arg(default_value = ".")]
         path: PathBuf,
@@ -86,10 +43,23 @@ pub enum XtaskCommand {
         #[arg(long, default_value = "false")]
         allow_dirty: bool,
     },
+    /// _Only_ perform the download step.
+    ///
+    /// Prepare the artifacts into a directly by running the suitable steps. The output directory
+    /// is suitable for use as a `CARGO_XTEST_DATA_PACK_OBJECTS` variable.
+    FetchArtifacts {
+        /// The path to the source crate archive.
+        path: PathBuf,
+        /// Provide a downloaded `pack-artifact`.
+        #[arg(id = "pack-artifact")]
+        pack_artifact: Option<PathBuf>,
+        /// Provide an explicit write location. Otherwise, a default is chosen based on the crate
+        /// name, version, and target directory.
+        output: Option<PathBuf>,
+    },
     /// Test a crate archive.
     ///
     /// This command may download the test archive data.
-    #[command(id = "test")]
     Test {
         /// A path to a `.crate` archive, or an unpacked version.
         ///
