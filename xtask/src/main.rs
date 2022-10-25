@@ -22,14 +22,17 @@ fn main() -> Result<(), LocatedError> {
             let source = target::LocalSource::with_simple_repository(&path).with_dirty(allow_dirty);
             let target = target::Target::from_dir(&source)?;
 
-            let tmp = mk_tmpdir(&mut private_tempdir);
-            let packed = task::pack::pack(&source, &target, &tmp)?;
+            let tmp = mk_tmpdir(&mut private_tempdir, &target);
+            let package = task::pack::pack(&source, &target, &tmp)?;
+
+            let packed = task::pack_archive::pack(&package.pack_path, &target, &tmp)?;
+            let unpacked = task::pack_archive::unpack(&packed, &target, &tmp)?;
 
             let test = task::test::test(
-                &packed.crate_,
+                &package.crate_,
                 &target,
-                &packed.pack_path,
-                &packed.vcs_info,
+                &unpacked,
+                &package.vcs_info,
                 &tmp,
             )?;
 
@@ -40,7 +43,7 @@ fn main() -> Result<(), LocatedError> {
             let source = target::LocalSource::with_simple_repository(&path).with_dirty(allow_dirty);
             let target = target::Target::from_dir(&source)?;
 
-            let tmp = mk_tmpdir(&mut private_tempdir);
+            let tmp = mk_tmpdir(&mut private_tempdir, &target);
             let packed = task::pack::pack(&source, &target, &tmp)?;
 
             let archive = task::pack_archive::pack(&packed.pack_path, &target, &tmp)?;
@@ -58,7 +61,7 @@ fn main() -> Result<(), LocatedError> {
             };
 
             let target = target::Target::from_crate(&source)?;
-            let tmp = mk_tmpdir(&mut private_tempdir);
+            let tmp = mk_tmpdir(&mut private_tempdir, &target);
 
             let archive = match pack_artifact {
                 None => {
@@ -88,12 +91,21 @@ fn main() -> Result<(), LocatedError> {
     }
 }
 
-fn mk_tmpdir(private_tempdir: &mut Option<TempDir>) -> PathBuf {
+fn mk_tmpdir(private_tempdir: &mut Option<TempDir>, target: &target::Target) -> PathBuf {
     env::var_os("TMPDIR").map_or_else(
         || {
             let temp =
                 TempDir::new_in("target", "xtest-data-").expect("to create a temporary directory");
-            fs::write(temp.path().join("Cargo.toml"), WORKSPACE_BOUNDARY)
+            // A cargo.toml file that defines a workspace.
+            // Otherwise, if we extract some crate into `target/xtest-data-??/ but the current crate is in a
+            // workspace then we incorrectly detect the current directory as the crate's workspace—and fail
+            // because it surely does not include its target directory as members. This is because the
+            // _normalized_ Cargo.toml does not include workspace definitions.
+            let boundary = format!(r#"
+[workspace]
+members = ["{}"]
+"#, target.expected_dir_name().display());
+            fs::write(temp.path().join("Cargo.toml"), boundary)
                 .expect("to create a workspace boundary if the package has non");
             let temp = private_tempdir.insert(temp);
             temp.path().to_owned()
@@ -101,13 +113,3 @@ fn mk_tmpdir(private_tempdir: &mut Option<TempDir>) -> PathBuf {
         PathBuf::from,
     )
 }
-
-// A cargo.toml file that defines a workspace.
-// Otherwise, if we extract some crate into `target/xtest-data-??/ but the current crate is in a
-// workspace then we incorrectly detect the current directory as the crate's workspace—and fail
-// because it surely does not include its target directory as members. This is because the
-// _normalized_ Cargo.toml does not include workspace definitions.
-const WORKSPACE_BOUNDARY: &'static str = r#"
-[workspace]
-members = ["*"]
-"#;
