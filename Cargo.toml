@@ -31,7 +31,7 @@ features = ["std", "tls", "wyrand"]
 # Method for archiving the pack data.
 pack-archive = "tar:gz"
 # URL template from which to fetch packed file during testing.
-pack-artifact = "{repository}/releases/xtest-data-v{version}/artifacts/xtest-data.tar.gz"
+pack-artifact = "{repository}/releases/download/v{version}/xtest-data.tar.gz"
 # Relative path to export data to, and expect pack objects in.
 pack-objects = "target/xtest-data-pack"
 

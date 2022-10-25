@@ -33,7 +33,7 @@ fn main() -> Result<(), LocatedError> {
                 &tmp,
             )?;
 
-            eprintln!("{:?}", packed.pack_path);
+            eprintln!("{:?}", test);
             Ok(())
         }
         XtaskCommand::Prepare { path, allow_dirty } => {
@@ -52,6 +52,7 @@ fn main() -> Result<(), LocatedError> {
             path,
             pack_artifact,
         } => {
+            // Prepare the sources, crate etc.
             let source = target::CrateSource {
                 path: path.to_owned(),
             };
@@ -71,7 +72,18 @@ fn main() -> Result<(), LocatedError> {
                 },
             };
 
-            todo!()
+            let unpack = task::pack_archive::unpack(&archive, &target, &tmp)?;
+
+            let test = task::test::test(
+                &source,
+                &target,
+                &unpack,
+                &target::VcsInfo::FromCrate,
+                &tmp,
+            )?;
+
+            eprintln!("{:?}", test);
+            Ok(())
         }
     }
 }
