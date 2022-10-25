@@ -10,6 +10,9 @@ pub struct LocatedError {
 }
 
 pub trait GoodOutput {
+    /// Ensure that no data is accidentally printed to (inherited) `stdout`.
+    /// Where available this may be achieved by redirecting to `stderr` instead.
+    fn mute_stdout(&mut self);
     fn success(&mut self) -> Result<(), io::Error>;
     fn output(&mut self) -> Result<Output, io::Error>;
     fn input_output(&mut self, inp: &dyn AsRef<[u8]>) -> Result<Output, io::Error>;
@@ -20,7 +23,47 @@ pub trait ParseOutput {
 }
 
 impl GoodOutput for Command {
+    fn mute_stdout(&mut self) {
+        // Reconfigure stdout to a null handle unless we can do better.
+        self.stdout({
+            #[cfg(not(any(
+                target_family = "unix",
+                target_family = "windows",
+            )))]
+            {
+                Stdio::null()
+            }
+
+            #[cfg(target_family = "unix")]
+            {
+                use std::os::unix::io::AsFd;
+                let stderr = std::io::stderr();
+                // Will need to pass an owned file descriptor. This is a decent way to access
+                // `dup` without any direct libc internals
+                if let Ok(file) = stderr.as_fd().try_clone_to_owned() {
+                    Stdio::from(file)
+                } else {
+                    Stdio::null()
+                }
+            }
+
+            #[cfg(target_family = "windows")]
+            {
+                use std::os::windows::io::AsHandle;
+                let stderr = std::io::stderr();
+                // Will need to pass an owned file descriptor. Let's try if there even is a valid
+                // handle and if we can pass a duplicate of it.
+                if let Ok(file) = stderr.as_handle().try_clone_to_owned() {
+                    Stdio::from(file)
+                } else {
+                    Stdio::null()
+                }
+            }
+        });
+    }
+
     fn success(&mut self) -> Result<(), io::Error> {
+        self.mute_stdout();
         let status = self.status()?;
         if !status.success() {
             return Err(io::ErrorKind::Other.into());
@@ -81,15 +124,17 @@ where
 #[track_caller]
 pub fn anchor_error<E: Error + Send + Sync + 'static>() -> impl FnMut(E) -> LocatedError {
     let location = std::panic::Location::caller();
-    move |inner| if <dyn core::any::Any>::is::<io::Error>(&inner) {
-        LocatedError {
-            location,
-            inner: *Box::<dyn core::any::Any>::downcast::<io::Error>(Box::new(inner)).unwrap(),
-        }
-    } else {
-        LocatedError {
-            location,
-            inner: std::io::Error::new(std::io::ErrorKind::Other, inner),
+    move |inner| {
+        if <dyn core::any::Any>::is::<io::Error>(&inner) {
+            LocatedError {
+                location,
+                inner: *Box::<dyn core::any::Any>::downcast::<io::Error>(Box::new(inner)).unwrap(),
+            }
+        } else {
+            LocatedError {
+                location,
+                inner: std::io::Error::new(std::io::ErrorKind::Other, inner),
+            }
         }
     }
 }

@@ -33,8 +33,9 @@ fn main() -> Result<(), LocatedError> {
 
             let output = task::output::write_artifacts(&source, &target, &packed)?;
             eprintln!("Test success: {:?}", test);
-            eprintln!("Created: {:?}", package.crate_.path);
-            eprintln!("Created: {:?}", output);
+            eprintln!("Package:\t{}", package.crate_.path.display());
+            eprint!("Created:\t");
+            println!("{}", output.display());
             Ok(())
         }
         XtaskCommand::Package { path, allow_dirty } => {
@@ -48,10 +49,14 @@ fn main() -> Result<(), LocatedError> {
             let output = task::output::write_artifacts(&source, &target, &archive)?;
 
             // FIXME: print instructions
-            eprintln!("Created: {:?}", output);
+            eprintln!("Created:\t{}", output.display());
             Ok(())
         }
-        XtaskCommand::FetchArtifacts { path, pack_artifact, output } => {
+        XtaskCommand::FetchArtifacts {
+            path,
+            pack_artifact,
+            output,
+        } => {
             // Prepare the sources, crate etc.
             let source = target::CrateSource {
                 path: path.to_owned(),
@@ -74,9 +79,7 @@ fn main() -> Result<(), LocatedError> {
 
             let location = match output {
                 Some(location) => location,
-                None => {
-                    target.expected_crate_name().join("target/xtest-data")
-                }
+                None => target.expected_crate_name().join("target/xtest-data"),
             };
 
             let unpack = task::artifacts::unpack(&archive, &target, &tmp)?;
@@ -84,7 +87,8 @@ fn main() -> Result<(), LocatedError> {
             let _ = std::fs::create_dir_all(location.parent().unwrap());
 
             std::fs::rename(&unpack.path, &location).map_err(anchor_error())?;
-            println!("Created: {}", unpack.path.display());
+            eprint!("Created:\t");
+            println!("{}", location.display());
 
             Ok(())
         }
@@ -117,7 +121,7 @@ fn main() -> Result<(), LocatedError> {
             let test =
                 task::test::test(&source, &target, &unpack, &target::VcsInfo::FromCrate, &tmp)?;
 
-            eprintln!("{:?}", test);
+            eprintln!("Test successful: {:?}", test);
             Ok(())
         }
     }

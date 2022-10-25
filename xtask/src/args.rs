@@ -51,7 +51,7 @@ pub enum XtaskCommand {
         /// The path to the source crate archive.
         path: PathBuf,
         /// Provide a downloaded `pack-artifact`.
-        #[arg(id = "pack-artifact")]
+        #[arg(id = "pack-artifact", long)]
         pack_artifact: Option<PathBuf>,
         /// Provide an explicit write location. Otherwise, a default is chosen based on the crate
         /// name, version, and target directory.
@@ -68,7 +68,7 @@ pub enum XtaskCommand {
         #[arg(default_value = ".")]
         path: PathBuf,
         /// Overwrite path to the downloaded `pack-artifact`.
-        #[arg(id = "pack-artifact")]
+        #[arg(id = "pack-artifact", long)]
         pack_artifact: Option<PathBuf>,
     },
 }
