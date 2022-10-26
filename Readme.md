@@ -122,15 +122,6 @@ In a non-source setting (i.e. when running from a downloaded crate) the
   tests from source, and read from this directory when running tests from a
   `.crate` archive. These are the same objects that would be fetched when doing
   a shallow  and sparse clone from the source repository.
-* `CARGO_XTEST_DATA_REPOSITORY_ORIGIN`: Can be set to override the Git url that
-  is used as the fallback source repository. Only used when no pack object
-  directory is provided. By default, set to the repository from the package
-  manifest.
-* `CARGO_XTEST_DATA_FETCH`: Only used when no pack object directory is
-  provided. If set to `1`, `yes`, `true` then it will try to make a network
-  connection, fetch data from the source repository. If _not_ set then it will
-  print a plan of what it intended to do and which files it would request (as
-  git pathspecs) from which commit, and then panic.
 * `CARGO_XTEST_VCS_INFO`: Path to a file with version control information as
   json, equivalent in structure to cargo's generated VCS information. This will
   force xtest into VCS mode, where resources are replaced with data from the

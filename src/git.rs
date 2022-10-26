@@ -28,11 +28,6 @@ pub(crate) struct Origin {
     pub url: OsString,
 }
 
-/// An origin that is okay to fetch from.
-pub(crate) struct ClearedOrigin {
-    pub url: OsString,
-}
-
 /// A git commit ID.
 /// This is treated as opaque string data. Usually it's a Sha1 hash (20 byte, hex-encoded).
 #[derive(Debug)]
@@ -45,80 +40,6 @@ pub(crate) enum PathSpec<'lt> {
 impl Git {
     pub fn new() -> Result<Self, impl std::fmt::Display> {
         which::which("git").map(|bin| Git { bin })
-    }
-
-    pub fn consent_to_use(
-        &self,
-        gitpath: &Path,
-        datapath: &Path,
-        origin: &Origin,
-        commit: &CommitId,
-        resources: &mut dyn Iterator<Item = &Path>,
-        pathspecs: &mut dyn Iterator<Item = PathSpec>,
-    ) -> ClearedOrigin {
-        let specs = resources.zip(pathspecs);
-
-        let var = std::env::var("CARGO_XTEST_DATA_FETCH").map_or_else(
-            |err| match err {
-                std::env::VarError::NotPresent => None,
-                std::env::VarError::NotUnicode(_) => Some("no".into()),
-            },
-            Some,
-        );
-
-        match var.as_deref() {
-            Some("yes") | Some("1") | Some("true") => {}
-            _ => {
-                eprintln!("These tests require additional data from a remote source.");
-                eprintln!("Here is what we planned to do.");
-                eprintln!("Set up bare Git dir in: {}", gitpath.display());
-                eprintln!("Git Origin: {}", Path::new(&origin.url).display());
-                eprintln!("Fetch Commit: {}", commit.0);
-                eprintln!("Checkout files into: {}", datapath.display());
-                for (resource, pathspec) in specs {
-                    eprintln!("  into {}: {}", resource.display(), pathspec);
-                }
-                eprintln!("Explicit consent can be given by setting CARGO_XTEST_DATA_FETCH=1");
-                inconclusive(&mut "refusing to continue without explicit agreement to network (see error log).")
-            }
-        }
-
-        ClearedOrigin {
-            url: origin.url.clone(),
-        }
-    }
-
-    /// Prepare `path` as a shallow clone of `origin`.
-    /// Aborts if this isn't possible (see error handling policy).
-    pub fn shallow_clone(&self, path: PathBuf, origin: &ClearedOrigin) -> ShallowBareRepository {
-        let repo = ShallowBareRepository { path };
-
-        let _lock = FileWaitLock::for_git_dir(&repo.path);
-        let mut cmd = repo.exec(self);
-
-        if !repo.path.exists() {
-            // clone [options…]
-            cmd.args([
-                "clone",
-                "--bare",
-                "--no-checkout",
-                "--filter=blob:none",
-                "--depth=1",
-                "--",
-            ]);
-            // <repository>
-            cmd.arg(&origin.url);
-            // [<target>]
-            cmd.arg(&repo.path);
-        } else {
-            // Test that the repo in fact exists and is recognized by git.
-            cmd.args(["symbolic-ref", "HEAD"]);
-        }
-
-        cmd.status()
-            .unwrap_or_else(|mut err| inconclusive(&mut err));
-
-        repo
     }
 
     /// Prepare `path` as a shallow clone of `origin`.
@@ -368,22 +289,6 @@ impl ShallowBareRepository {
         cmd.stdout(Stdio::null());
         cmd.stderr(Stdio::piped());
         cmd
-    }
-
-    pub fn fetch(&self, git: &Git, head: &CommitId, origin: &ClearedOrigin) {
-        let _lock = FileWaitLock::for_git_dir(&self.path);
-
-        let mut cmd = self.exec(git);
-        cmd.args(["fetch", "--filter=blob:none", "--depth=1"]);
-        cmd.arg(&origin.url);
-        cmd.arg(head);
-        let exit = cmd
-            .output()
-            .unwrap_or_else(|mut err| inconclusive(&mut err));
-        if !exit.status.success() {
-            eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
-            inconclusive(&mut "Git operation was not successful");
-        }
     }
 
     pub fn unpack(&self, git: &Git, packs: &OsString) {
