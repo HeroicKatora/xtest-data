@@ -16,9 +16,8 @@ jobs:
           toolchain: stable
           override: true
     - name: Create test data
-      run: CARGO_XTEST_DATA_PACK_OBJECTS="$(pwd)/target/xtest-data" cargo test
-    - name: Pack data
-      run: tar czf xtest-data.tar.gz target/xtest-data
+      run: >
+        mv "$(cargo run -p xtask -- package)" "xtest-data.tar.gz"
     - uses: ncipollo/release-action@v1
       with:
         artifacts: "xtest-data.tar.gz"

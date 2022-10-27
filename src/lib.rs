@@ -215,8 +215,7 @@ pub fn _setup(options: EnvOptions) -> Setup<'static> {
     }
 
     // Now allow the override.
-    let repository = env::var_os("CARGO_XTEST_DATA_REPOSITORY_ORIGIN")
-        .unwrap_or_else(|| OsString::from(repository));
+    let repository = OsString::from(repository);
 
     // Make sure this is an integration test, or at least we have the dir.
     // We don't want to block building over this (e.g. the crate itself here) but we _do_ want to
@@ -419,17 +418,7 @@ impl<'lt> Setup<'lt> {
                     shallow = git.bare(gitpath, &commit_id);
                     shallow.unpack(&git, &pack_objects);
                 } else {
-                    let origin = git.consent_to_use(
-                        &gitpath,
-                        &datapath,
-                        &origin,
-                        &commit_id,
-                        &mut self.resources.as_paths(),
-                        &mut self.resources.path_specs(),
-                    );
-
-                    shallow = git.shallow_clone(gitpath, &origin);
-                    shallow.fetch(&git, &commit_id, &origin);
+                    panic!("Requested test data from {} but have no packed artifacts to load. Provide an explicit path to a directory to unpack via the `CARGO_XTEST_DATA_PACK_OBJECTS` environment variable", Path::new(&origin.url).display());
                 }
 
                 shallow.checkout(
@@ -460,12 +449,6 @@ impl<'lt> Setup<'lt> {
 }
 
 impl Resources<'_> {
-    pub fn as_paths(&self) -> impl Iterator<Item = &'_ Path> {
-        let values = self.relative_files.iter().map(Managed::as_path);
-        let unmanaged = self.unmanaged.iter().map(|x| Path::new(x));
-        values.chain(unmanaged)
-    }
-
     pub fn path_specs(&self) -> impl Iterator<Item = git::PathSpec<'_>> {
         let values = self.relative_files.iter().map(Managed::as_path_spec);
         let unmanaged = self.unmanaged.iter().map(|x| git::PathSpec::Path(&**x));

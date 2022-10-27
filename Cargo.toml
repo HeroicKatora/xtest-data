@@ -1,11 +1,14 @@
 [package]
 name = "xtest-data"
-version = "1.0.0-beta.2"
+version = "1.0.0-beta.3"
 description = "Fetch auxiliary test data when testing published crates"
 license = "MIT OR Apache-2.0 OR Zlib"
 edition = "2018"
 rust-version = "1.53"
 repository = "https://github.com/HeroicKatora/xtest-data"
+
+# As part of the self-test, do not make data files part of the crate archive.
+# These are accessible in the integration tests by the library using itself.
 exclude = [".github", "tests/data.zip"]
 
 [dependencies.tinyjson]
