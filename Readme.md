@@ -27,6 +27,21 @@ cargo run -p xtask -- crate-test <crate>
 eval `cargo run -p xtask -- fetch-artifacts <crate>`
 ```
 
+For an offline use, where archives are handled by yourself:
+
+```bash
+# Prepare .crate and .xtest-data archives:
+cargo run -p xtask -- package
+# on stdout, e.g.: ./target/xtest-data/xtest-data-1.0.0-beta.3.xtest-data
+
+# < -- Any method to upload/download/exchange archives -- >
+
+# After downloading both files again:
+eval `cargo run -p xtask -- fetch-artifacts xtest-data-1.0.0-beta.3.crate \
+  --pack-artifact xtest-data-1.0.0-beta.3.xtest-data`
+# Now proceed with regular testing
+```
+
 ## How to apply
 
 Integrate this package as a dev-dependency into your tests.
