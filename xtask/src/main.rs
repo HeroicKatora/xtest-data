@@ -49,7 +49,8 @@ fn main() -> Result<(), LocatedError> {
             let output = task::output::write_artifacts(&source, &target, &archive)?;
 
             // FIXME: print instructions
-            eprintln!("Created:\t{}", output.display());
+            eprint!("Created:\t");
+            println!("{}", output.display());
             Ok(())
         }
         XtaskCommand::CrateTest {
