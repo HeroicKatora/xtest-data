@@ -127,8 +127,14 @@ fn main() -> Result<(), LocatedError> {
             let tempdir = core::mem::ManuallyDrop::new(tmpdir);
 
             eprintln!("Environment variables to set:");
-            println!("export CARGO_XTEST_DATA_TMPDIR=\"{}\"", tempdir.path().display());
-            println!("export CARGO_XTEST_DATA_PACK_OBJECTS=\"{}\"", location.display());
+            println!(
+                "export CARGO_XTEST_DATA_TMPDIR=\"{}\"",
+                tempdir.path().display()
+            );
+            println!(
+                "export CARGO_XTEST_DATA_PACK_OBJECTS=\"{}\"",
+                location.display()
+            );
 
             Ok(())
         }

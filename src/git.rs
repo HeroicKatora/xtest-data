@@ -457,9 +457,15 @@ fn inconclusive_but_maybe_gitdir(
     impl std::fmt::Display for WithSuspicionNoVcsPresent<'_> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             writeln!(f, "{}", self.0)?;
-            writeln!(f, "The xtest-data setup expected to find the crate within a git directory.")?;
+            writeln!(
+                f,
+                "The xtest-data setup expected to find the crate within a git directory."
+            )?;
             writeln!(f, "This is because it did not find a `.cargo_vcs_info.json` file sibling to `Cargo.toml`.")?;
-            writeln!(f, "If you've unpacked a `.crate` archive, are you certain it did contain the file?.")?;
+            writeln!(
+                f,
+                "If you've unpacked a `.crate` archive, are you certain it did contain the file?."
+            )?;
             Ok(())
         }
     }
