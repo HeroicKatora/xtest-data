@@ -131,7 +131,11 @@ In a non-source setting (i.e. when running from a downloaded crate) the
 `xtest_data` package will read the following environment variables:
 
 * `CARGO_XTEST_DATA_TMPDIR` (fallback: `TMPDIR`) is required to be set when any
-  of the tests are _NOT_ integration tests.
+  of the tests are _NOT_ integration tests. Simply put, the setup creates some
+  auxiliary data files but it can not guarantee cleaning them up. This makes an
+  explicit effort to communicate this to the environment. Feel free to contest
+  this reasoning if you feel your use-case were better addressed with an
+  implicit, leaking temporary directory.
 * `CARGO_XTEST_DATA_PACK_OBJECTS`: A directory for git pack objects (see `man
   git pack-objects`). Pack files are written to this directory when running
   tests from source, and read from this directory when running tests from a

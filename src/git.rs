@@ -235,7 +235,9 @@ impl CrateDir {
 
         if !exit.status.success() {
             eprintln!("{}", String::from_utf8_lossy(&exit.stderr));
-            inconclusive(&mut "Git operation was not successful");
+            // We try to do some detection here, because this is the first command that is ran when
+            // we assume to be in a git directory.
+            inconclusive_but_maybe_gitdir(&exit, &mut "Git operation was not successful");
         }
 
         let id = String::from_utf8_lossy(&exit.stdout);
@@ -444,6 +446,39 @@ impl ShallowBareRepository {
             inconclusive(&mut "Git operation was not successful");
         }
     }
+}
+
+fn inconclusive_but_maybe_gitdir(
+    output: &std::process::Output,
+    descriptor: &mut dyn std::fmt::Display,
+) {
+    struct WithSuspicionNoVcsPresent<'lf>(&'lf mut dyn std::fmt::Display);
+
+    impl std::fmt::Display for WithSuspicionNoVcsPresent<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            writeln!(f, "{}", self.0)?;
+            writeln!(f, "The xtest-data setup expected to find the crate within a git directory.")?;
+            writeln!(f, "This is because it did not find a `.cargo_vcs_info.json` file sibling to `Cargo.toml`.")?;
+            writeln!(f, "If you've unpacked a `.crate` archive, are you certain it did contain the file?.")?;
+            Ok(())
+        }
+    }
+
+    if let Ok(st) = std::str::from_utf8(&output.stderr) {
+        // Failing to find a git repository looks something like this:
+        //
+        // fatal: Kein Git-Repository (oder irgendein Elternverzeichnis bis zum Einhängepunkt /)
+        // Stoppe bei Dateisystemgrenze (GIT_DISCOVERY_ACROSS_FILESYSTEM nicht gesetzt).
+
+        if st.contains("fatal")
+            && st.contains("/)")
+            && st.contains("GIT_DISCOVERY_ACROSS_FILESYSTEM")
+        {
+            inconclusive(&mut WithSuspicionNoVcsPresent(descriptor));
+        }
+    }
+
+    inconclusive(descriptor);
 }
 
 impl FileWaitLock {
