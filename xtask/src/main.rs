@@ -122,7 +122,12 @@ fn main() -> Result<(), LocatedError> {
             // Now, expect the path to actually exist.
             let location = std::fs::canonicalize(&location).map_err(anchor_error())?;
 
+            // Get some random temporary directory we can 'return'.
+            let tmpdir = tempfile::tempdir().map_err(anchor_error())?;
+            let tempdir = core::mem::ManuallyDrop::new(tmpdir);
+
             eprintln!("Environment variables to set:");
+            println!("export CARGO_XTEST_DATA_TMPDIR=\"{}\"", tempdir.path().display());
             println!("export CARGO_XTEST_DATA_PACK_OBJECTS=\"{}\"", location.display());
 
             Ok(())
