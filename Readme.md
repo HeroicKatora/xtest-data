@@ -7,29 +7,25 @@ documentation tests can not be ran from the published `.crate` archive alone,
 if they depend on auxiliary data files that should not be shipped to downstream
 packages and end users.
 
-There are two modes: An 'online' mode where it fetches data via shallow and
-sparse clone from a repository (online, or prepared clone) or an offline mode
-consuming git object packs as auxiliary files, which the library can also
-export as a minimal archive of test data.
+For this task it augments `Cargo.toml` with additional fields that describe how
+an artifact archive composed from VCS files that are associated with the exact
+version at which they were created. The packed data and exact version is then
+referenced when executing test from the `.crate` archive. A small runtime
+component unpacks the data and rewrites file paths to a substitute file tree.
 
-## Motivation
+## How to test crates
 
-As a developer of a library, you will write some integration with the goal of
-ensuring correct functionality of your code. Typically, these will be executed
-in a CI pipeline before release. However, what if someone else—e.g. an Open
-Source OS distribution—wants to repackage your code? In some cases they might
-need to perform simple, small modifications: rewrite dependencies, apply
-compilation options like hardening flags, etc. After those modifications it's
-unclear if the end product still conforms to its own expectations. Thus will
-want to run the integration test suite again. That's where the library comes in.
-It should ensure that:
+This repository contains a reference implementation for interpreting the
+auxiliary metadata. It's simple to test crates depending on this library:
 
-* It is unobtrusive in that it does not require modification to the code that
-  is used when included as a dependency.
-* Tests should be reproducible from the packaged `.crate`, and an author can
-  check this property locally and during pre-release checks.
-* Auxiliary data files required for tests are referenced unambiguously.
-* It does not make unmodifiable assumptions about the source of test data.
+```bash
+# test for developers
+cargo run -p xtask -- test <path-to-repo>
+# test for packager
+cargo run -p xtask -- crate-test <crate>
+# prepare a test but delay its execution
+eval `cargo run -p xtask -- fetch-artifacts <crate>`
+```
 
 ## How to apply
 
@@ -49,6 +45,25 @@ panic when something is missing since this indicates absent data. The reasoning
 is that this indicates a faulty setup, not something the test should handle.
 The expectation of the library is that you access all data through this library
 instead of as a direct path.
+
+## Motivation
+
+As a developer of a library, you will write some integration with the goal of
+ensuring correct functionality of your code. Typically, these will be executed
+in a CI pipeline before release. However, what if someone else—e.g. an Open
+Source OS distribution—wants to repackage your code? In some cases they might
+need to perform simple, small modifications: rewrite dependencies, apply
+compilation options like hardening flags, etc. After those modifications it's
+unclear if the end product still conforms to its own expectations. Thus will
+want to run the integration test suite again. That's where the library comes in.
+It should ensure that:
+
+* It is unobtrusive in that it does not require modification to the code that
+  is used when included as a dependency.
+* Tests should be reproducible from the packaged `.crate`, and an author can
+  check this property locally and during pre-release checks.
+* Auxiliary data files required for tests are referenced unambiguously.
+* It does not make unmodifiable assumptions about the source of test data.
 
 ## How to use offline
 

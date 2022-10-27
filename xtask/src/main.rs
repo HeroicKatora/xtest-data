@@ -119,8 +119,11 @@ fn main() -> Result<(), LocatedError> {
             let _ = std::fs::create_dir_all(location.parent().unwrap());
 
             std::fs::rename(&unpack.path, &location).map_err(anchor_error())?;
-            eprint!("Created:\t");
-            println!("{}", location.display());
+            // Now, expect the path to actually exist.
+            let location = std::fs::canonicalize(&location).map_err(anchor_error())?;
+
+            eprintln!("Environment variables to set:");
+            println!("export CARGO_XTEST_DATA_PACK_OBJECTS=\"{}\"", location.display());
 
             Ok(())
         }
