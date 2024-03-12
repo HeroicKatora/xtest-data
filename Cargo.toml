@@ -15,7 +15,6 @@ exclude = [".github", "tests/data.zip"]
 bin-xtask = [
   "dep:clap",
   "dep:serde",
-  "dep:tempdir",
   "dep:tempfile",
   "dep:tinytemplate",
   "dep:toml",
@@ -45,9 +44,6 @@ optional = true
 [dependencies.serde]
 version = "1"
 features = ["derive"]
-optional = true
-[dependencies.tempdir]
-version = "0.3.7"
 optional = true
 [dependencies.tempfile]
 version = "3"
