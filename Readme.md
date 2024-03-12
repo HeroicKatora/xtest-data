@@ -20,24 +20,25 @@ auxiliary metadata. It's simple to test crates depending on this library:
 
 ```bash
 # test for developers
-cargo run -p xtask -- test <path-to-repo>
+cargo run --bin xtask --features bin-xtask -- test <path-to-repo>
 # test for packager
-cargo run -p xtask -- crate-test <crate>
+cargo run --bin xtask --features bin-xtask -- crate-test <crate>
 # prepare a test but delay its execution
-eval `cargo run -p xtask -- fetch-artifacts <crate>`
+eval `cargo run --bin xtask --features bin-xtask -- fetch-artifacts <crate>`
 ```
 
 For an offline use, where archives are handled by yourself:
 
 ```bash
 # Prepare .crate and .xtest-data archives:
-cargo run -p xtask -- package
+cargo run --bin xtask --features bin-xtask -- package
 # on stdout, e.g.: ./target/xtest-data/xtest-data-1.0.0-beta.3.xtest-data
 
 # < -- Any method to upload/download/exchange archives -- >
 
 # After downloading both files again:
-eval `cargo run -p xtask -- fetch-artifacts xtest-data-1.0.0-beta.3.crate \
+eval `cargo run --bin xtask --features bin-xtask -- \
+  fetch-artifacts xtest-data-1.0.0-beta.3.crate \
   --pack-artifact xtest-data-1.0.0-beta.3.xtest-data`
 # Now proceed with regular testing
 ```
@@ -113,7 +114,8 @@ repurpose the `xtask` of this crate as a binary:
 
 ```bash
 cd path/to/xtest-data
-cargo run -p xtask -- --path to/your/crate test
+cargo run --bin xtask --features bin-xtask -- \
+  --path to/your/crate test
 ```
 
 Hint: if you add the source repository of `xtest-data` as a submodule and
