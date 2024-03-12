@@ -104,8 +104,7 @@ impl Target {
     }
 
     pub(crate) fn from_toml(toml: &[u8]) -> Result<Self, LocatedError> {
-        let toml = core::str::from_utf8(toml)
-            .map_err(anchor_error())?;
+        let toml = core::str::from_utf8(toml).map_err(anchor_error())?;
 
         let toml: Value = toml::de::from_str(toml)
             .map_err(as_io_error)

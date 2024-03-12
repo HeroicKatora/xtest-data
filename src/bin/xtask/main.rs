@@ -145,8 +145,8 @@ fn main() -> Result<(), LocatedError> {
 fn mk_tmpdir(private_tempdir: &mut Option<TempDir>, target: &target::Target) -> PathBuf {
     env::var_os("TMPDIR").map_or_else(
         || {
-            let temp =
-                TempDir::with_prefix_in("xtest-data-", "target").expect("to create a temporary directory");
+            let temp = TempDir::with_prefix_in("xtest-data-", "target")
+                .expect("to create a temporary directory");
             // A cargo.toml file that defines a workspace.
             // Otherwise, if we extract some crate into `target/xtest-data-??/ but the current crate is in a
             // workspace then we incorrectly detect the current directory as the crate's workspace—and fail
