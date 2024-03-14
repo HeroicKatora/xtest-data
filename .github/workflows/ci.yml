@@ -12,7 +12,7 @@ jobs:
     - name: Install chosen toolchain
       uses: mkroening/rust-toolchain-toml@v1.2.0
     - name: test
-      run: cargo run -p xtask -- test
+      run: cargo run --bin xtask --features=bin-xtask -- test
   rustfmt:
     runs-on: ubuntu-latest
     steps:
