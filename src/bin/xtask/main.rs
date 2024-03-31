@@ -3,7 +3,7 @@ mod target;
 mod task;
 mod util;
 
-use self::args::XtaskCommand;
+use self::args::{CargoXtestData, XtaskCommand};
 use self::util::{anchor_error, as_io_error, undiagnosed_io_error, LocatedError};
 
 use std::path::PathBuf;
@@ -17,7 +17,9 @@ const CARGO: &'static str = env!("CARGO");
 
 fn main() -> Result<(), LocatedError> {
     let mut private_tempdir = None;
-    match XtaskCommand::parse() {
+    let CargoXtestData::XtestData { cmd } = CargoXtestData::parse();
+
+    match cmd {
         XtaskCommand::Test { path, allow_dirty } => {
             let source = target::LocalSource::with_simple_repository(&path).with_dirty(allow_dirty);
             let target = target::Target::from_dir(&source)?;

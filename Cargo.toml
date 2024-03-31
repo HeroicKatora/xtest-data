@@ -24,7 +24,7 @@ bin-xtask = [
 
 [[bin]]
 path = "src/bin/xtask/main.rs"
-name = "xtask"
+name = "cargo-xtest-data"
 required-features = ["bin-xtask"]
 
 [dependencies.tinyjson]

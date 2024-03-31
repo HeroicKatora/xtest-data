@@ -16,28 +16,32 @@ component unpacks the data and rewrites file paths to a substitute file tree.
 ## How to test crates
 
 This repository contains a reference implementation for interpreting the
-auxiliary metadata. It's simple to test crates depending on this library:
+auxiliary metadata. It's simple binary behind a feature of this library. Within
+the workspace we also define an alias `xtask` (in this [here][cargo-config]) to
+invoke it easily.
+
+[cargo-config]: .cargo/config.toml
 
 ```bash
 # test for developers
-cargo run --bin xtask --features bin-xtask -- test <path-to-repo>
+cargo xtest-data test <path-to-repo>
 # test for packager
-cargo run --bin xtask --features bin-xtask -- crate-test <crate>
+cargo xtest-data crate-test <.crate>
 # prepare a test but delay its execution
-eval `cargo run --bin xtask --features bin-xtask -- fetch-artifacts <crate>`
+eval `cargo xtest-data fetch-artifacts <.crate>`
 ```
 
 For an offline use, where archives are handled by yourself:
 
 ```bash
 # Prepare .crate and .xtest-data archives:
-cargo run --bin xtask --features bin-xtask -- package
+cargo xtest-data package
 # on stdout, e.g.: ./target/xtest-data/xtest-data-1.0.0-beta.3.xtest-data
 
 # < -- Any method to upload/download/exchange archives -- >
 
 # After downloading both files again:
-eval `cargo run --bin xtask --features bin-xtask -- \
+eval `cargo xtest-data \
   fetch-artifacts xtest-data-1.0.0-beta.3.crate \
   --pack-artifact xtest-data-1.0.0-beta.3.xtest-data`
 # Now proceed with regular testing
@@ -110,17 +114,17 @@ The complete interface is not much more complex than the simple version above.
 
 There is one additional detail if you want to check that your crate
 successfully passes the tests on a crate distribution. For this you can
-repurpose the `xtask` of this crate as a binary:
+repurpose the `cargo-xtest-data` subcommand of this crate as a binary:
 
 ```bash
 cd path/to/xtest-data
-cargo run --bin xtask --features bin-xtask -- \
-  --path to/your/crate test
+cargo xtest-data --path to/your/crate test
 ```
 
 Hint: if you add the source repository of `xtest-data` as a submodule and
-modify your workspace to include the `xtask` folder then you can always execute
-the `xtask` from your own crate.
+modify your workspace to include the `xtask` folder then you can execute the
+`xtask` from your own crate via a cargo alias, avoiding the system wide
+install.
 
 The xtask will:
 1. Run `cargo package` to create the `.crate` archive and accompanying pack
@@ -165,6 +169,21 @@ In a non-source setting (i.e. when running from a downloaded crate) the
   information or to supplement such information. For example, packages
   generated with `cargo package --allow-dirty` will not include such a file,
   and this can be used to override with a forced selection.
+
+## Integration into a xtask repository
+
+The tool also provides limited sandboxing for local development in the form of
+a [cargo xtask][cargo-xtask], allowing testing the actual released archives.
+However, the idea of an xtask is that the exact setup is not uploaded with the
+main package and just a local dev-tool which is configured in the source cargo
+configuration (`.cargo/config.toml` relative to your workspace).
+
+The `cargo run` command will only let you refer to local dependencies in your
+workspace, not actually dev-dependencies, [see
+upstream](https://github.com/rust-lang/cargo/issues/2267). There are two ways
+to pin the specific version regardless: You might refer to this repository as a
+git submodule (or subtree). In the meantime you `cargo install` the binary
+globally which makes it available as a `cargo` subcommand.
 
 ## How it works
 
@@ -212,16 +231,3 @@ same time through `--pathspecs-from-file=-`. With `sparse-checkout`, however,
 we only call this once which lowers the number of connection attempts. A
 workaround is to setup a local agent and purge that afterwards or to create a
 short-lived token instead.
-
-## Ideas for future work
-
-As a [cargo xtask][cargo-xtask]. However, the idea of an xtask is that the
-exact setup is not uploaded with the main package and just a local dev-tool.
-Still, we could help with the test setup.
-
-Add this as a git submodule (or subtree). This should allow you to configure a
-dependency on data files in a separate repository and not tracked by `git`
-itself. This package does not mind where you add it as long as you configure it
-to be in _your_ workspace. Then setup a command alias to this package.
-
-[cargo-xtask]: https://github.com/matklad/cargo-xtask
